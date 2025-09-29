@@ -29,7 +29,7 @@ class SimpleMS2000:
             self.ser.reset_output_buffer()
 
     def _write(self, cmd: bytes, term: bytes = b'\r') -> Optional[str]:
-        """Отправить команду и вернуть строку‑ответ без терминатора."""
+        """Отправить команду и вернуть строку‑ответ h без терминатора."""
         if not self.ser:
             return None
         try:
