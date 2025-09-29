@@ -19,10 +19,22 @@ class SimpleMS2000:
         try:
             self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
             self.logger.info(f"Подключён к {self.port}")
+            time.sleep(0.2)
+            self.set_high_pressision()
         except Exception as e:
             self.logger.error(f"Не удалось открыть порт: {e}")
             self.ser = None
-
+    def set_high_pressision(self):
+        if not self.ser:
+            return None
+        try:
+            cmd=bytes([255,72])
+            self.logger.info("high_press")
+            self.flush()
+            self.ser.write(cmd)
+            time.sleep(0.1)
+        except Exception as e:
+            self.logger.error(f"error {e}")
     def _flush(self) -> None:
         if self.ser:
             self.ser.reset_input_buffer()
