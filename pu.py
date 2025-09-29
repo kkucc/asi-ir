@@ -1,12 +1,12 @@
 import serial
 import logging
 import time
-from typing import Optional 
+from typing import Optional
 
 PORT = "COM4"
 BAUD = 9600
 TIMEOUT_S = 2.0
-UNITS_MM = 1e-4
+UNITS_MM = 1e-4  # Единица ответа команды WHERE - это 0.1 микрона, поэтому множитель 1e-4 для перевода в мм. Он остается верным.
 
 class SimpleMS2000:
     def __init__(self, port: str, baud: int, timeout: float):
@@ -19,32 +19,42 @@ class SimpleMS2000:
         try:
             self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
             self.logger.info(f"Подключён к {self.port}")
-            time.sleep(0.2)
-            self.set_high_pressision()
+            # Сразу после подключения переключаемся в режим высокой точности
+            time.sleep(0.2) # Даем порту "проснуться"
+            self.set_high_precision()
         except Exception as e:
             self.logger.error(f"Не удалось открыть порт: {e}")
             self.ser = None
-    def set_high_pressision(self):
+
+    def set_high_precision(self):
+        """
+        Переключает контроллер в режим высокой точности для команды WHERE.
+        Отправляет команду 255 72 (Alt+255, H).
+        """
         if not self.ser:
-            return None
+            return
+        
         try:
-            cmd=bytes([255,72])
-            self.logger.info("high_press")
-            self.flush()
+            cmd = bytes([255, 72])
+            self.logger.info("Отправка команды для переключения в режим высокой точности (255, 72).")
+            self._flush()
             self.ser.write(cmd)
+            # Эта команда не возвращает стандартного ответа :A, поэтому просто делаем небольшую паузу.
             time.sleep(0.1)
         except Exception as e:
-            self.logger.error(f"error {e}")
+            self.logger.error(f"Ошибка при установке режима высокой точности: {e}")
+
     def _flush(self) -> None:
         if self.ser:
             self.ser.reset_input_buffer()
             self.ser.reset_output_buffer()
 
     def _write(self, cmd: bytes, term: bytes = b'\r') -> Optional[str]:
-        """Отправить команду и вернуть строку‑ответ h без терминатора."""
+        """Отправить команду и вернуть строку‑ответ без терминатора."""
         if not self.ser:
             return None
         try:
+            # Флашить буферы лучше прямо перед записью
             self._flush()
             self.ser.write(cmd + term)
             raw = self.ser.read_until(b'\r\n')
@@ -57,10 +67,12 @@ class SimpleMS2000:
         """Запрос текущих координат (команда «W X Y»)."""
         resp = self._write(b'W X Y')
         if resp and resp.startswith(":A"):
-            # ответ выглядит так: ":A 12345 67890"
+            # В режиме низкой точности ответ: ":A 67977 12345"
+            # В режиме высокой точности ответ: ":A 67977.2 12345.0"
+            # Функция float() обработает оба варианта корректно.
             parts = resp.split()
             if len(parts) >= 3:
-                x = float(parts[1]) * UNITS_MM
+                x = float(parts[1]) * UNITS_MM # e.g. 67977.2 * 1e-4 = 6.79772
                 y = float(parts[2]) * UNITS_MM
                 self.logger.info(f"Позиция – X: {x:.6f} mm, Y: {y:.6f} mm")
                 return x, y
@@ -85,12 +97,12 @@ class SimpleMS2000:
         if self.ser:
             self.ser.close()
             self.logger.info("Порт закрыт")
+
 def try_commands(dev: SimpleMS2000) -> None:
     """Пробует несколько вариантов запросов позиции и выводит ответы."""
-    candidates = [b'W X Y']#
-    for cmd in candidates:
-        resp = dev._write(cmd)
-        print(f"{cmd.decode():>8} → {resp}")
+    print("--- Проверка ответа команды W X Y ---")
+    resp = dev._write(b'W X Y')
+    print(f"  W X Y → {resp}")
 
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s",
@@ -99,8 +111,7 @@ if __name__ == "__main__":
     dev = SimpleMS2000(PORT, BAUD, TIMEOUT_S)
 
     if dev.ser:
-        time.sleep(0.2)
-        try_commands(dev) 
+        try_commands(dev)
         dev.get_position()
         dev.get_speed()
         dev.close()
