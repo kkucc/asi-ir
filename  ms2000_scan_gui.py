@@ -41,10 +41,7 @@ class MS2000Controller:
     def __init__(self, log_callback: Callable[[str], None]):
         self.ser: Optional[serial.Serial] = None; self.is_running_scan = False
         self.stop_event = threading.Event(); self.log = log_callback; self.lock = threading.Lock()
-
-    def is_connected(self) -> bool:
-        return self.ser is not None and self.ser.is_open
-
+    def is_connected(self) -> bool: return self.ser is not None and self.ser.is_open
     def connect(self, port, baud):
         try:
             self.ser = serial.Serial(port, baud, timeout=1.0); time.sleep(0.2); self._set_high_precision()
@@ -62,21 +59,17 @@ class MS2000Controller:
         if not self.is_connected(): return None
         with self.lock:
             try:
-                # self.log(f"CMD > {cmd}") # Можно раскомментировать для полной отладки
+                # self.log(f"CMD > {cmd}") # Раскомментировать для полной отладки
                 self.ser.reset_input_buffer(); self.ser.write(f"{cmd}\r".encode('ascii'))
-                response = self.ser.read_until(b'\r\n').decode('ascii').strip()
-                # self.log(f"RSP < {response}")
-                return response
+                return self.ser.read_until(b'\r\n').decode('ascii').strip()
             except Exception as e: self.log(f"ERROR: {e}"); return None
-            
     def wait_for_idle(self):
-        timeout = 2.0 
+        timeout = 5.0 # Адекватный таймаут на одно движение
         start_time = time.time()
         while not self.stop_event.is_set():
             if self.send_command("/") == 'N': return
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.05)
-            
     def move_absolute(self, x, y): self.send_command(f"M X={int(x*UNITS_MM_TO_DEVICE)} Y={int(y*UNITS_MM_TO_DEVICE)}")
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
@@ -106,7 +99,7 @@ class MS2000Controller:
 class StageControlApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("MS-2000 Cockpit v13 (Stable)")
+        self.root.title("MS-2000 Cockpit v14 (Stable)")
         self.root.geometry("700x520")
         self.controller = MS2000Controller(print)
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
@@ -165,7 +158,7 @@ class StageControlApp:
         except: pass
     def auto_zoom_to_scan_area(self, params):
         min_x=min(params['start_x'],params['end_x']); max_x=max(params['start_x'],params['end_x']); min_y=min(params['start_y'],params['end_y']); max_y=max(params['start_y'],params['end_y'])
-        width=max_x-min_x; height=max_y-min_y; margin_x=max(width*0.1,1.0); margin_y=max(height*0.1,1.0)
+        width=max_x-min_x; height=max_y-min_y; margin_x=max(width*0.1,0.5); margin_y=max(height*0.1,0.5)
         self.minimap_extents = [min_x-margin_x, max_x+margin_x, min_y-margin_y, max_y+margin_y]; self.update_minimap_view()
     def start_scan(self):
         params=self.get_scan_params(); dev_str=self.device_combobox.get()
@@ -173,7 +166,7 @@ class StageControlApp:
         device = next((d for d in self.available_devices if str(d) == dev_str), None)
         self.start_scan_button.config(state=tk.DISABLED); self.stop_scan_button.config(state=tk.NORMAL)
         self.auto_zoom_to_scan_area(params)
-        nan_data = np.full((int(params['steps_y']), int(params['steps_x'])), np.nan); self.plot_scan_data(nan_data, 0)
+        nan_data = np.full((int(params['steps_y']), int(params['steps_x'])), np.nan); self.plot_scan_data(nan_data, -1) # Начинаем с -1, чтобы линия была внизу
         self.scan_thread = threading.Thread(target=self.controller.run_scan, args=(params, device, self.line_update_callback), daemon=True); self.scan_thread.start()
         self.check_scan_thread()
     def line_update_callback(self, data, row_idx): self.root.after(0, self.plot_scan_data, data, row_idx)
@@ -186,9 +179,14 @@ class StageControlApp:
         else: self.scan_image.set_data(data); self.scan_image.set_extent(extent)
         if not np.all(np.isnan(data)): self.scan_image.set_clim(np.nanmin(data), np.nanmax(data))
         if self.progress_line: self.progress_line.remove()
+        
         step_y = (p['end_y']-p['start_y'])/(p['steps_y']-1) if p['steps_y']>1 else 0
-        line_y_pos = p['start_y'] + (row_index + 0.5) * step_y
-        self.progress_line = self.ax.axhline(y=line_y_pos, color='yellow', lw=1.5, alpha=0.9)
+        line_y_pos = p['start_y'] + (row_index + 1) * step_y - (step_y / 2)
+        if row_index < int(p['steps_y'] -1):
+            self.progress_line = self.ax.axhline(y=line_y_pos, color='yellow', lw=2, alpha=0.9)
+        else:
+            self.progress_line = None # Линия исчезает после последней строки
+            
         self.canvas.draw()
     def check_scan_thread(self):
         if self.scan_thread and self.scan_thread.is_alive(): self.root.after(100, self.check_scan_thread)
@@ -201,11 +199,11 @@ class StageControlApp:
             p={k:float(e.get()) for k,e in self.scan_entries.items()}
             if validate:
                 if (p['steps_x']%1!=0 or p['steps_y']%1!=0 or p['steps_x']<1 or p['steps_y']<1):
-                    messagebox.showerror("Ошибка в параметрах", "Количество точек (Points) должно быть целым числом больше 0."); return None
+                    messagebox.showerror("Parameter Error", "Points must be integers >= 1."); return None
             p['end_x']=p['start_x']+(p['steps_x']-1)*p['step_x']; p['end_y']=p['start_y']+(p['steps_y']-1)*p['step_y']
             return p
         except (ValueError, tk.TclError):
-            if validate: messagebox.showerror("Ошибка в параметрах", "Все поля должны содержать корректные числовые значения.");
+            if validate: messagebox.showerror("Parameter Error", "All fields must contain valid numbers.");
             return None
     def connect(self):
         if self.controller.connect(self.conn_entries['port'].get(), int(self.conn_entries['baudrate'].get())):
