@@ -213,3 +213,25 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
     root.mainloop()
+#     INFO: Connected to MS-2000 on COM4.
+# c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py:177: MatplotlibDeprecationWarning: The get_cmap function was deprecated in Matplotlib 3.7 and will be removed in 3.11. 
+# Use ``matplotlib.colormaps[name]`` or ``matplotlib.colormaps.get_cmap()`` or ``pyplot.get_cmap()`` 
+# instead.
+#   cmap=cm.get_cmap('viridis').copy();cmap.set_bad(color='black')
+# INFO: --- Starting Scan with SmartDummySignal ---
+# CMD > S X=2.0 Y=2.0
+# CMD > M X=0 Y=0
+# CMD > /
+# ERROR: --- Scan Failed: Move command timed out ---
+# CMD > \
+# Exception in Tkinter callback
+# Traceback (most recent call last):
+#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+#     return self.func(*args)
+#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 806, in callit
+#     func(*args)
+#   File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 192, 
+# in check_scan_thread
+#     if self.controller.is_connected(): self.start_scan_button.config(state=tk.NORMAL)
+# AttributeError: 'MS2000Controller' object has no attribute 'is_connected'
+# INFO: Disconnected.
