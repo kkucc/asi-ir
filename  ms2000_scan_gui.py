@@ -208,3 +208,52 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
     root.mainloop()
+#     INFO: Connected to MS-2000 on COM4.
+# c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py:178: MatplotlibDeprecationWarning: The get_cmap function was deprecated in Matplotlib 3.7 and will be removed in 3.11. 
+# Use ``matplotlib.colormaps[name]`` or ``matplotlib.colormaps.get_cmap()`` or ``pyplot.get_cmap()`` 
+# instead.
+#   cmap=cm.get_cmap('viridis').copy();cmap.set_bad(color='black')
+# Exception in Tkinter callback
+# Traceback (most recent call last):
+#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+#     return self.func(*args)
+#   File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 170, 
+# in start_scan
+#     nan_data = np.full((int(params['steps_y']), int(params['steps_x'])), np.nan); self.plot_scan_data(nan_data, 0)
+#   File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 182, 
+# in plot_scan_data
+#     if self.progress_line: self.progress_line.remove()
+# AttributeError: 'StageControlApp' object has no attribute 'progress_line'
+# Exception in Tkinter callback
+# Traceback (most recent call last):
+#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+#     return self.func(*args)
+#   File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 204, 
+# in stop_scan
+#     if self.scan_thread and self.scan_thread.is_alive(): self.controller.stop_scan()
+# AttributeError: 'StageControlApp' object has no attribute 'scan_thread'
+# Exception in Tkinter callback
+# Traceback (most recent call last):
+#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+#     return self.func(*args)
+#   File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 204, 
+# in stop_scan
+#     if self.scan_thread and self.scan_thread.is_alive(): self.controller.stop_scan()
+# AttributeError: 'StageControlApp' object has no attribute 'scan_thread'
+# Exception in Tkinter callback
+# Traceback (most recent call last):
+#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+#     return self.func(*args)
+#   File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 204, 
+# in stop_scan
+#     if self.scan_thread and self.scan_thread.is_alive(): self.controller.stop_scan()
+# AttributeError: 'StageControlApp' object has no attribute 'scan_thread'
+# Exception in Tkinter callback
+# Traceback (most recent call last):
+#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+#     return self.func(*args)
+#   File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 204, 
+# in stop_scan
+#     if self.scan_thread and self.scan_thread.is_alive(): self.controller.stop_scan()
+# AttributeError: 'StageControlApp' object has no attribute 'scan_thread'
+# INFO: Disconnected.
