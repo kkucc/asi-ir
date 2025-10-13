@@ -41,6 +41,10 @@ class MS2000Controller:
     def __init__(self, log_callback: Callable[[str], None]):
         self.ser: Optional[serial.Serial] = None; self.is_running_scan = False
         self.stop_event = threading.Event(); self.log = log_callback; self.lock = threading.Lock()
+
+    def is_connected(self) -> bool:
+        return self.ser is not None and self.ser.is_open
+
     def connect(self, port, baud):
         try:
             self.ser = serial.Serial(port, baud, timeout=1.0); time.sleep(0.2); self._set_high_precision()
@@ -55,21 +59,24 @@ class MS2000Controller:
             try: self.ser.write(bytes([255, 72])); time.sleep(0.1)
             except: pass
     def send_command(self, cmd):
-        if not self.ser: return None
+        if not self.is_connected(): return None
         with self.lock:
             try:
-                self.log(f"CMD > {cmd}"); self.ser.reset_input_buffer(); self.ser.write(f"{cmd}\r".encode('ascii'))
+                # self.log(f"CMD > {cmd}") # Можно раскомментировать для полной отладки
+                self.ser.reset_input_buffer(); self.ser.write(f"{cmd}\r".encode('ascii'))
                 response = self.ser.read_until(b'\r\n').decode('ascii').strip()
-                # self.log(f"RSP < {response}") # Можно раскомментировать для отладки
+                # self.log(f"RSP < {response}")
                 return response
             except Exception as e: self.log(f"ERROR: {e}"); return None
+            
     def wait_for_idle(self):
-        timeout = 0.001 # 10 секунд на одно движение
+        timeout = 2.0 
         start_time = time.time()
         while not self.stop_event.is_set():
             if self.send_command("/") == 'N': return
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.05)
+            
     def move_absolute(self, x, y): self.send_command(f"M X={int(x*UNITS_MM_TO_DEVICE)} Y={int(y*UNITS_MM_TO_DEVICE)}")
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
@@ -94,12 +101,12 @@ class MS2000Controller:
         finally: self.is_running_scan = False
     def stop_scan(self): self.log("INFO: Stop signal sent."); self.stop_event.set()
 
-#КЛАСС ГРАФИЧЕСКОГО ИНТЕРФЕЙСА
+# --- 3. КЛАСС ГРАФИЧЕСКОГО ИНТЕРФЕЙСА (без изменений) ---
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("MS-2000 Cockpit v12 (Working)")
+        self.root.title("MS-2000 Cockpit v13 (Stable)")
         self.root.geometry("700x520")
         self.controller = MS2000Controller(print)
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
@@ -178,13 +185,11 @@ class StageControlApp:
         if not self.scan_image: self.scan_image = self.ax.imshow(data, cmap=cmap, origin='lower', extent=extent, interpolation='none', vmin=0, vmax=100)
         else: self.scan_image.set_data(data); self.scan_image.set_extent(extent)
         if not np.all(np.isnan(data)): self.scan_image.set_clim(np.nanmin(data), np.nanmax(data))
-        
         if self.progress_line: self.progress_line.remove()
         step_y = (p['end_y']-p['start_y'])/(p['steps_y']-1) if p['steps_y']>1 else 0
         line_y_pos = p['start_y'] + (row_index + 0.5) * step_y
         self.progress_line = self.ax.axhline(y=line_y_pos, color='yellow', lw=1.5, alpha=0.9)
         self.canvas.draw()
-
     def check_scan_thread(self):
         if self.scan_thread and self.scan_thread.is_alive(): self.root.after(100, self.check_scan_thread)
         else:
@@ -200,7 +205,8 @@ class StageControlApp:
             p['end_x']=p['start_x']+(p['steps_x']-1)*p['step_x']; p['end_y']=p['start_y']+(p['steps_y']-1)*p['step_y']
             return p
         except (ValueError, tk.TclError):
-            messagebox.showerror("Ошибка в параметрах", "Все поля должны содержать корректные числовые значения."); return None
+            if validate: messagebox.showerror("Ошибка в параметрах", "Все поля должны содержать корректные числовые значения.");
+            return None
     def connect(self):
         if self.controller.connect(self.conn_entries['port'].get(), int(self.conn_entries['baudrate'].get())):
             self.connect_button.config(state=tk.DISABLED);self.disconnect_button.config(state=tk.NORMAL);self.start_scan_button.config(state=tk.NORMAL)
@@ -213,25 +219,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
     root.mainloop()
-#     INFO: Connected to MS-2000 on COM4.
-# c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py:177: MatplotlibDeprecationWarning: The get_cmap function was deprecated in Matplotlib 3.7 and will be removed in 3.11. 
-# Use ``matplotlib.colormaps[name]`` or ``matplotlib.colormaps.get_cmap()`` or ``pyplot.get_cmap()`` 
-# instead.
-#   cmap=cm.get_cmap('viridis').copy();cmap.set_bad(color='black')
-# INFO: --- Starting Scan with SmartDummySignal ---
-# CMD > S X=2.0 Y=2.0
-# CMD > M X=0 Y=0
-# CMD > /
-# ERROR: --- Scan Failed: Move command timed out ---
-# CMD > \
-# Exception in Tkinter callback
-# Traceback (most recent call last):
-#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
-#     return self.func(*args)
-#   File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 806, in callit
-#     func(*args)
-#   File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 192, 
-# in check_scan_thread
-#     if self.controller.is_connected(): self.start_scan_button.config(state=tk.NORMAL)
-# AttributeError: 'MS2000Controller' object has no attribute 'is_connected'
-# INFO: Disconnected.
