@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import serial
 import time
 import threading
@@ -59,11 +59,16 @@ class MS2000Controller:
         with self.lock:
             try:
                 self.log(f"CMD > {cmd}"); self.ser.reset_input_buffer(); self.ser.write(f"{cmd}\r".encode('ascii'))
-                return self.ser.read_until(b'\r\n').decode('ascii').strip()
+                response = self.ser.read_until(b'\r\n').decode('ascii').strip()
+                # self.log(f"RSP < {response}") # Можно раскомментировать для отладки
+                return response
             except Exception as e: self.log(f"ERROR: {e}"); return None
     def wait_for_idle(self):
+        timeout = 0.001 # 10 секунд на одно движение
+        start_time = time.time()
         while not self.stop_event.is_set():
             if self.send_command("/") == 'N': return
+            if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.05)
     def move_absolute(self, x, y): self.send_command(f"M X={int(x*UNITS_MM_TO_DEVICE)} Y={int(y*UNITS_MM_TO_DEVICE)}")
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
@@ -94,19 +99,13 @@ class MS2000Controller:
 class StageControlApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("MS-2000 Cockpit v9 (Fixed)")
+        self.root.title("MS-2000 Cockpit v12 (Working)")
         self.root.geometry("700x520")
         self.controller = MS2000Controller(print)
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents = [STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
-        
-        self.scan_thread: Optional[threading.Thread] = None
-        self.progress_line: Optional[Rectangle] = None
-        self.scan_image = None
-        self.scan_area_patch: Optional[Rectangle] = None
-        self._pan_start_x: Optional[float] = None
-        self._pan_start_y: Optional[float] = None
-        
+        self.scan_thread=None; self.progress_line=None; self.scan_image=None; self.scan_area_patch=None
+        self._pan_start_x=None; self._pan_start_y=None
         self._create_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -132,7 +131,7 @@ class StageControlApp:
         for i,(k,(l,v)) in enumerate({"start_y":("Start","0.0"), "steps_y":("Points","50"), "step_y":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+1,column=3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+1,column=4,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
         param_frame.columnconfigure(2,minsize=20); ttk.Separator(param_frame,orient='horizontal').grid(row=4,column=0,columnspan=5,sticky='ew',pady=10)
         for i,(k,(l,v)) in enumerate({"speed":("Speed","2.0"),"dwell":("Dwell","0.01")}.items()): ttk.Label(param_frame,text=l+":").grid(row=5,column=i*3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=5,column=i*3+1,padx=5);self.scan_entries[k]=e
-
+    
     def setup_minimap(self):
         self.ax.clear(); self.ax.set_xticks([]); self.ax.set_yticks([]); self.ax.set_facecolor('#cccccc'); self.ax.set_aspect('equal', adjustable='box')
         self.scan_image = None; self.scan_area_patch = None
@@ -157,11 +156,16 @@ class StageControlApp:
             p=self.get_scan_params(False); w=(p['steps_x']-1)*p['step_x']; h=(p['steps_y']-1)*p['step_y']
             self.scan_area_patch = self.ax.add_patch(Rectangle((p['start_x'],p['start_y']),w,h,lw=1,ec='black',fc='black',alpha=0.5)); self.canvas.draw()
         except: pass
+    def auto_zoom_to_scan_area(self, params):
+        min_x=min(params['start_x'],params['end_x']); max_x=max(params['start_x'],params['end_x']); min_y=min(params['start_y'],params['end_y']); max_y=max(params['start_y'],params['end_y'])
+        width=max_x-min_x; height=max_y-min_y; margin_x=max(width*0.1,1.0); margin_y=max(height*0.1,1.0)
+        self.minimap_extents = [min_x-margin_x, max_x+margin_x, min_y-margin_y, max_y+margin_y]; self.update_minimap_view()
     def start_scan(self):
         params=self.get_scan_params(); dev_str=self.device_combobox.get()
-        if params is None or not dev_str: print("ERROR: Invalid params or no device."); return
+        if params is None or not dev_str: return
         device = next((d for d in self.available_devices if str(d) == dev_str), None)
         self.start_scan_button.config(state=tk.DISABLED); self.stop_scan_button.config(state=tk.NORMAL)
+        self.auto_zoom_to_scan_area(params)
         nan_data = np.full((int(params['steps_y']), int(params['steps_x'])), np.nan); self.plot_scan_data(nan_data, 0)
         self.scan_thread = threading.Thread(target=self.controller.run_scan, args=(params, device, self.line_update_callback), daemon=True); self.scan_thread.start()
         self.check_scan_thread()
@@ -174,23 +178,29 @@ class StageControlApp:
         if not self.scan_image: self.scan_image = self.ax.imshow(data, cmap=cmap, origin='lower', extent=extent, interpolation='none', vmin=0, vmax=100)
         else: self.scan_image.set_data(data); self.scan_image.set_extent(extent)
         if not np.all(np.isnan(data)): self.scan_image.set_clim(np.nanmin(data), np.nanmax(data))
+        
         if self.progress_line: self.progress_line.remove()
         step_y = (p['end_y']-p['start_y'])/(p['steps_y']-1) if p['steps_y']>1 else 0
-        self.progress_line = self.ax.axhline(y=p['start_y']+row_index*step_y, color='yellow', lw=1.5, alpha=0.9)
+        line_y_pos = p['start_y'] + (row_index + 0.5) * step_y
+        self.progress_line = self.ax.axhline(y=line_y_pos, color='yellow', lw=1.5, alpha=0.9)
         self.canvas.draw()
+
     def check_scan_thread(self):
         if self.scan_thread and self.scan_thread.is_alive(): self.root.after(100, self.check_scan_thread)
         else:
             self.stop_scan_button.config(state=tk.DISABLED)
             if self.controller.is_connected(): self.start_scan_button.config(state=tk.NORMAL)
-            self.setup_minimap(); self.update_scan_area_preview()
+            self.reset_zoom(); self.setup_minimap(); self.update_scan_area_preview()
     def get_scan_params(self, validate=True):
         try:
             p={k:float(e.get()) for k,e in self.scan_entries.items()}
-            if validate and (p['steps_x']%1!=0 or p['steps_y']%1!=0 or p['steps_x']<1 or p['steps_y']<1): print("ERROR: Points must be int >= 1"); return None
+            if validate:
+                if (p['steps_x']%1!=0 or p['steps_y']%1!=0 or p['steps_x']<1 or p['steps_y']<1):
+                    messagebox.showerror("Ошибка в параметрах", "Количество точек (Points) должно быть целым числом больше 0."); return None
             p['end_x']=p['start_x']+(p['steps_x']-1)*p['step_x']; p['end_y']=p['start_y']+(p['steps_y']-1)*p['step_y']
             return p
-        except: print("ERROR: Invalid param"); return None
+        except (ValueError, tk.TclError):
+            messagebox.showerror("Ошибка в параметрах", "Все поля должны содержать корректные числовые значения."); return None
     def connect(self):
         if self.controller.connect(self.conn_entries['port'].get(), int(self.conn_entries['baudrate'].get())):
             self.connect_button.config(state=tk.DISABLED);self.disconnect_button.config(state=tk.NORMAL);self.start_scan_button.config(state=tk.NORMAL)
