@@ -94,13 +94,19 @@ class MS2000Controller:
 class StageControlApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("MS-2000 Cockpit v10 (Auto-Zoom)")
+        self.root.title("MS-2000 Cockpit v9 (Fixed)")
         self.root.geometry("700x520")
         self.controller = MS2000Controller(print)
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents = [STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
-        self.scan_thread = None; self.progress_line = None; self.scan_image = None
-        self.scan_area_patch = None; self._pan_start_x = None; self._pan_start_y = None
+        
+        self.scan_thread: Optional[threading.Thread] = None
+        self.progress_line: Optional[Rectangle] = None
+        self.scan_image = None
+        self.scan_area_patch: Optional[Rectangle] = None
+        self._pan_start_x: Optional[float] = None
+        self._pan_start_y: Optional[float] = None
+        
         self._create_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -151,40 +157,15 @@ class StageControlApp:
             p=self.get_scan_params(False); w=(p['steps_x']-1)*p['step_x']; h=(p['steps_y']-1)*p['step_y']
             self.scan_area_patch = self.ax.add_patch(Rectangle((p['start_x'],p['start_y']),w,h,lw=1,ec='black',fc='black',alpha=0.5)); self.canvas.draw()
         except: pass
-        
-    def auto_zoom_to_scan_area(self, params):
-        """Новый метод для автоматического зума."""
-        min_x = min(params['start_x'], params['end_x'])
-        max_x = max(params['start_x'], params['end_x'])
-        min_y = min(params['start_y'], params['end_y'])
-        max_y = max(params['start_y'], params['end_y'])
-        
-        width = max_x - min_x
-        height = max_y - min_y
-        
-        # Добавляем 10% отступ, но не меньше 1мм
-        margin_x = max(width * 0.1, 1.0)
-        margin_y = max(height * 0.1, 1.0)
-        
-        self.minimap_extents = [min_x - margin_x, max_x + margin_x, min_y - margin_y, max_y + margin_y]
-        self.update_minimap_view()
-
     def start_scan(self):
         params=self.get_scan_params(); dev_str=self.device_combobox.get()
         if params is None or not dev_str: print("ERROR: Invalid params or no device."); return
         device = next((d for d in self.available_devices if str(d) == dev_str), None)
-        
         self.start_scan_button.config(state=tk.DISABLED); self.stop_scan_button.config(state=tk.NORMAL)
-        
-        #  АВТО-ЗУМ ПЕРЕД СКАНИРОВАНИЕМ 
-        self.auto_zoom_to_scan_area(params)
-        
         nan_data = np.full((int(params['steps_y']), int(params['steps_x'])), np.nan); self.plot_scan_data(nan_data, 0)
         self.scan_thread = threading.Thread(target=self.controller.run_scan, args=(params, device, self.line_update_callback), daemon=True); self.scan_thread.start()
         self.check_scan_thread()
-
     def line_update_callback(self, data, row_idx): self.root.after(0, self.plot_scan_data, data, row_idx)
-
     def plot_scan_data(self, data, row_index):
         p=self.get_scan_params(False);
         if not p: return
@@ -197,15 +178,12 @@ class StageControlApp:
         step_y = (p['end_y']-p['start_y'])/(p['steps_y']-1) if p['steps_y']>1 else 0
         self.progress_line = self.ax.axhline(y=p['start_y']+row_index*step_y, color='yellow', lw=1.5, alpha=0.9)
         self.canvas.draw()
-
     def check_scan_thread(self):
         if self.scan_thread and self.scan_thread.is_alive(): self.root.after(100, self.check_scan_thread)
         else:
             self.stop_scan_button.config(state=tk.DISABLED)
             if self.controller.is_connected(): self.start_scan_button.config(state=tk.NORMAL)
-            self.reset_zoom()
             self.setup_minimap(); self.update_scan_area_preview()
-
     def get_scan_params(self, validate=True):
         try:
             p={k:float(e.get()) for k,e in self.scan_entries.items()}
