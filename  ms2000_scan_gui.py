@@ -460,3 +460,45 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
     root.mainloop()
+    
+# PS C:\Users\QE LAB> [System.IO.Ports.SerialPort]::new(
+# >>     'COM4',
+# >>     9600,
+# >>     [System.IO.Ports.Parity]::None,
+# >>     8,
+# >>     [System.IO.Ports.StopBits]::One
+# >> ).{
+# >>     $_.Open()
+# >>     $_.WriteLine('PING')
+# >>     Start-Sleep -Milliseconds 300
+# >>     $out = $_.ReadExisting()
+# >>     $_.Close()
+# >>     $out   # ?????? ?????????? ??????????
+# >> }
+# >>
+# PS C:\Users\QE LAB>
+# 13:04:43 - Switching to high-precision mode.
+# 13:04:43 - Successfully connected to MS-2000 on COM4.
+# 13:04:43 - CMD > W X Y
+# 13:04:43 - RSP < :A 8000.0 -0.4
+# 13:04:43 - CMD > W X Y
+# 13:04:43 - RSP < :A 8000.0 -0.4
+# 13:04:44 - CMD > W X Y
+# 13:04:44 - RSP < :A 8000.0 -0.4
+# 13:04:44 - CMD > W X Y
+# 13:04:44 - RSP < :A 8000.0 -0.4
+# 13:04:45 - CMD > W X Y
+# 13:04:45 - RSP < :A 8000.0 -0.4
+# 13:04:45 - --- Starting Scan ---
+# 13:04:45 - --- ERROR during scan: 'speed' ---
+# 13:04:45 - CMD > \
+# 13:04:45 - RSP < A:A
+# 13:04:45 - CMD > W X Y
+# 13:04:45 - RSP < :A 8000.0 -0.4
+# 13:04:46 - CMD > W X Y
+# 13:04:46 - RSP < :A 8000.0 -0.4
+# 13:04:47 - CMD > W X Y
+# 13:04:47 - RSP < :A 8000.0 -0.4
+# 13:04:47 - CMD > W X Y
+# 13:04:47 - RSP < :A 8000.0 -0.4
+# 13:04:48 - CMD > W X Y
