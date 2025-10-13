@@ -1,4 +1,3 @@
-# ms2000_interactive_map_v3.py
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 import serial
