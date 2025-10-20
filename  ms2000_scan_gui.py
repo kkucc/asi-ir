@@ -6,24 +6,34 @@ import threading
 import numpy as np
 from typing import Optional, Callable, Any
 import abc
+
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.cm as cm
 from matplotlib.patches import Rectangle
 
-UNITS_MM_TO_DEVICE = 10000; STAGE_X_MIN, STAGE_X_MAX = -34.0, 39.0; STAGE_Y_MIN, STAGE_Y_MAX = -34.0, 39.0
+UNITS_MM_TO_DEVICE = 10000
+STAGE_X_MIN, STAGE_X_MAX = -34.0, 39.0
+STAGE_Y_MIN, STAGE_Y_MAX = -34.0, 39.0
+
+
 class AcquisitionDevice(abc.ABC):
     @abc.abstractmethod
-    def acquire(self, x: float, y: float) -> Any: pass
+    def acquire(self, dwell_time: float, x: float, y: float) -> Any: pass
     def __str__(self): return self.__class__.__name__
+
 class SmartDummySignal(AcquisitionDevice):
-    def acquire(self, x: float, y: float) -> float:
+    def acquire(self, dwell_time: float, x: float, y: float) -> float:
+        time.sleep(dwell_time) # Имитируем реальное ожидание
         center_x, center_y, radius = 10.0, 10.0, 5.0
         distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
         if distance < radius: return 90 + np.random.rand() * 10
         else: return 10 + np.random.rand() * 10
+
 class RandomNoiseDevice(AcquisitionDevice):
-    def acquire(self, x: float, y: float) -> float: return np.random.rand() * 100
+    def acquire(self, dwell_time: float, x: float, y: float) -> float:
+        time.sleep(dwell_time)
+        return np.random.rand() * 100
 
 
 class MS2000Controller:
@@ -32,33 +42,37 @@ class MS2000Controller:
         self.stop_event = threading.Event(); self.log = log_callback; self.lock = threading.Lock()
     def is_connected(self) -> bool: return self.ser is not None and self.ser.is_open
     def connect(self, port, baud):
-        try: self.ser = serial.Serial(port, baud, timeout=1.0); time.sleep(0.2); self._set_high_precision(); self.log(f"INFO: Connected to MS-2000 on {port}."); return True
+        try:
+            self.ser = serial.Serial(port, baud, timeout=1.0); time.sleep(0.2); self._set_high_precision()
+            self.log(f"INFO: Connected to MS-2000 on {port}."); return True
         except serial.SerialException as e: self.log(f"ERROR: {e}"); self.ser=None; return False
     def disconnect(self):
         if self.is_running_scan: self.stop_scan()
         if self.ser: self.ser.close(); self.log("INFO: Disconnected.")
         self.ser = None
     def _set_high_precision(self):
-        if self.ser:
+        if self.is_connected():
             try: self.ser.write(bytes([255, 72])); time.sleep(0.1)
             except: pass
-    def send_command(self, cmd):
+    def send_command(self, cmd, quiet=False):
         if not self.is_connected(): return None
         with self.lock:
             try:
+                if not quiet: self.log(f"CMD > {cmd}")
                 self.ser.reset_input_buffer(); self.ser.write(f"{cmd}\r".encode('ascii'))
                 response = self.ser.read_until(b'\r\n').decode('ascii').strip()
+                if not quiet: self.log(f"RSP < {response}")
                 return response
             except Exception as e: self.log(f"ERROR: {e}"); return None
     def wait_for_idle(self):
         timeout = 5.0 
         start_time = time.time()
         while not self.stop_event.is_set():
-            if self.send_command("/") == 'N': return
+            if self.send_command("/", quiet=True) == 'N': return
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.05)
     def move_absolute(self, x, y): self.send_command(f"M X={int(x*UNITS_MM_TO_DEVICE)} Y={int(y*UNITS_MM_TO_DEVICE)}")
-
+    
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
         self.log(f"INFO: --- Starting Software-Timed Scan with {device} ---")
@@ -68,47 +82,37 @@ class MS2000Controller:
             y_coords = np.linspace(params['start_y'], params['end_y'], steps_y)
             results = np.full((steps_y, steps_x), np.nan)
             self.send_command(f"S X={params['speed']} Y={params['speed']}")
-
             for i, y in enumerate(y_coords):
                 xs = x_coords if i % 2 == 0 else x_coords[::-1]
                 for j, x in enumerate(xs):
                     if self.stop_event.is_set(): raise InterruptedError
-                    
-                    self.move_absolute(x, y)
-                    self.wait_for_idle()
-                    
-                    
-                    # TTL импульс вручную
-                    self.send_command("TTL Y=1") # Поднять линию
-                    self.send_command("TTL Y=0") # опустить
-                    self.log(">>> TTL Pulse Sent (Software Trigger) <<<")
-                    
-                    # Ждем Dwell время с помощью Python
-                    time.sleep(params['dwell'])
-                    
-                    # 3. Собираем данные / чтение из буфера)
-                    value = device.acquire(x, y)
-
+                    self.move_absolute(x, y); self.wait_for_idle()
+                    self.send_command("TTL Y=1", quiet=True); self.send_command("TTL Y=0", quiet=True)
+                    value = device.acquire(params['dwell'], x, y)
                     results[i, j if i%2==0 else (steps_x-1-j)] = value
-                    
                 if line_callback: line_callback(results.copy(), i)
             self.log("INFO: --- Scan Completed ---")
         except InterruptedError: self.log("INFO: --- Scan Stopped ---"); self.send_command(chr(92))
         except Exception as e: self.log(f"ERROR: --- Scan Failed: {e} ---"); self.send_command(chr(92))
-        finally:
-            self.is_running_scan = False
+        finally: self.is_running_scan = False
             
     def stop_scan(self): self.log("INFO: Stop signal sent."); self.stop_event.set()
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v18 (Software Trigger)"); self.root.geometry("700x520")
-        self.controller = MS2000Controller(print); self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
+        self.root = root
+        self.root.title("MS-2000 Cockpit v19 (Timestamp Log)")
+        self.root.geometry("700x520")
+        
+        self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
+        
+        self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents = [STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
         self.scan_thread=None; self.progress_line=None; self.scan_image=None; self.scan_area_patch=None
         self._pan_start_x=None; self._pan_start_y=None
         self._create_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
     def _create_widgets(self):
         main_frame = ttk.Frame(self.root, padding=10); main_frame.pack(fill=tk.BOTH, expand=True); main_frame.columnconfigure(0, weight=1); main_frame.columnconfigure(1, weight=0); main_frame.rowconfigure(1, weight=1)
         top_left=ttk.Frame(main_frame); top_right=ttk.Frame(main_frame, width=280, height=280); bottom_left=ttk.Frame(main_frame)
