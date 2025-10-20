@@ -50,15 +50,15 @@ try:
     print("1. Getting initial position...")
     start_x, start_y = get_position()
     print(f"   => Start Position: X = {start_x:.4f} mm, Y = {start_y:.4f} mm")
-    
-    target_x = start_x + MOVE_DISTANCE_X_MM
-    print(f"\n2. Moving X by {MOVE_DISTANCE_X_MM} mm...")
-    send_command(f"M X={int(target_x * UNITS_MM_TO_DEVICE)} Y={int(start_y * UNITS_MM_TO_DEVICE)}")
-    
-    wait_for_idle()
+    for i in range(5):
+        target_x = start_x + MOVE_DISTANCE_X_MM*(i + 1)
+        print(f"\n2. Moving X by {MOVE_DISTANCE_X_MM} mm...")
+        send_command(f"M X={int(target_x * UNITS_MM_TO_DEVICE)} Y={int(start_y * UNITS_MM_TO_DEVICE)}")
+        
+        wait_for_idle()
 
-    print("\n>>> TTL PULSE HAS BEEN SENT BY THE CONTROLLER! <<<\n")
-    
+        print("\n>>> TTL PULSE HAS BEEN SENT BY THE CONTROLLER! <<<\n")
+        
     print("3. Getting final position...")
     end_x, end_y = get_position()
     print(f"   => Final Position: X = {end_x:.4f} mm, Y = {end_y:.4f} mm")
