@@ -83,3 +83,19 @@ finally:
     if ser and ser.is_open:
         ser.close()
         print("\nSerial port closed.")
+#         AB/Documents/Visual Studio 2022/vscode/asi-ir/tune_oy.py"
+# Connecting to COM4...
+# Connection successful.
+
+# --- Orthogonality Calibration ---
+# This will measure the drift of the Y-axis while moving along X.
+
+# 1. Moving to starting point (0, 0)...
+#   CMD > M X=0 Y=0
+#   RSP < :A
+#   Waiting for move to complete...
+
+# AN ERROR OCCURRED: send_command() got an unexpected keyword argument 'quiet'
+
+# Serial port closed.
+# PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode>
