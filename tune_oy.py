@@ -9,13 +9,14 @@ CALIBRATION_DISTANCE_MM = 20.0 # Едем на 20 мм для точности
 
 ser: Optional[serial.Serial] = None
 
-def send_command(cmd: str) -> str:
+def send_command(cmd: str, quiet: bool = False) -> str:
+    """Отправляет команду и возвращает ответ. 'quiet' подавляет лог."""
     global ser
-    print(f"  CMD > {cmd}")
+    if not quiet: print(f"  CMD > {cmd}")
     ser.reset_input_buffer(); ser.reset_output_buffer()
     ser.write(f"{cmd}\r".encode('ascii'))
     response = ser.read_until(b'\r\n').decode('ascii').strip()
-    print(f"  RSP < {response}")
+    if not quiet: print(f"  RSP < {response}")
     return response
 
 def get_position() -> Optional[tuple[float, float]]:
@@ -26,10 +27,11 @@ def get_position() -> Optional[tuple[float, float]]:
     return None
 
 def wait_for_idle():
+    """Ждет, пока столик не завершит движение, с таймаутом."""
     print("  Waiting for move to complete...")
     start_time = time.time()
     while time.time() - start_time < 20: # Таймаут 20 секунд
-        if send_command("/", quiet=True) == 'N':
+        if send_command("/", quiet=True) == 'N': # Теперь этот вызов корректен
             print("  ...Move complete.")
             return
         time.sleep(0.05)
@@ -55,6 +57,7 @@ try:
 
     print(f"\n2. Moving {CALIBRATION_DISTANCE_MM} mm along X-axis...")
     target_x = start_x + CALIBRATION_DISTANCE_MM
+    # Команда на движение должна быть с целочисленными координатами Y
     send_command(f"M X={int(target_x * UNITS_MM_TO_DEVICE)} Y={int(start_y * UNITS_MM_TO_DEVICE)}")
     wait_for_idle()
 
@@ -83,19 +86,3 @@ finally:
     if ser and ser.is_open:
         ser.close()
         print("\nSerial port closed.")
-#         AB/Documents/Visual Studio 2022/vscode/asi-ir/tune_oy.py"
-# Connecting to COM4...
-# Connection successful.
-
-# --- Orthogonality Calibration ---
-# This will measure the drift of the Y-axis while moving along X.
-
-# 1. Moving to starting point (0, 0)...
-#   CMD > M X=0 Y=0
-#   RSP < :A
-#   Waiting for move to complete...
-
-# AN ERROR OCCURRED: send_command() got an unexpected keyword argument 'quiet'
-
-# Serial port closed.
-# PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode>
