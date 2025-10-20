@@ -1,0 +1,870 @@
+
+pk=300
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> & "C:/Program Files/Python39/python.exe" "c:/Users/QE LAB/Documents/Visual Studio 2022/vscode/asi-ir/pupu.py"
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 54984.4 1.1
+   => Start Position: X = 5.4984 mm, Y = 0.0001 mm
+
+--- Loop 1 of 5 ---
+  Target: X=5.5984, Y=0.0001
+  CMD > M X=55984 Y=1
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 55980.7 0.2
+  Current Position: X=5.5981, Y=0.0000
+
+--- Loop 2 of 5 ---
+  Target: X=5.6984, Y=0.0001
+  CMD > M X=56984 Y=1
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 56982.7 0.2
+  Current Position: X=5.6983, Y=0.0000
+
+--- Loop 3 of 5 ---
+  Target: X=5.7984, Y=0.0001
+  CMD > M X=57984 Y=1
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 57981.7 0.2
+  Current Position: X=5.7982, Y=0.0000
+
+--- Loop 4 of 5 ---
+  Target: X=5.8984, Y=0.0001
+  CMD > M X=58984 Y=1
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 58982.6 0.2
+  Current Position: X=5.8983, Y=0.0000
+
+--- Loop 5 of 5 ---
+  Target: X=5.9984, Y=0.0001
+  CMD > M X=59984 Y=1
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 59980.9 0.2
+  Current Position: X=5.9981, Y=0.0000
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 59980.9 0.2
+   => Final Position: X = 5.9981 mm, Y = 0.0000 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+pk=360
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 59980.9 0.2
+   => Start Position: X = 5.9981 mm, Y = 0.0000 mm
+
+--- Loop 1 of 5 ---
+  Target: X=6.0981, Y=0.0000
+  CMD > M X=60980 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 60979.0 -0.2
+  Current Position: X=6.0979, Y=-0.0000
+
+--- Loop 2 of 5 ---
+  Target: X=6.1981, Y=0.0000
+  CMD > M X=61980 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 61978.2 -0.7
+  Current Position: X=6.1978, Y=-0.0001
+
+--- Loop 3 of 5 ---
+  Target: X=6.2981, Y=0.0000
+  CMD > M X=62980 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 62977.3 -0.2
+  Current Position: X=6.2977, Y=-0.0000
+
+--- Loop 4 of 5 ---
+  Target: X=6.3981, Y=0.0000
+  CMD > M X=63980 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 63977.6 -0.2
+  Current Position: X=6.3978, Y=-0.0000
+
+--- Loop 5 of 5 ---
+  Target: X=6.4981, Y=0.0000
+  CMD > M X=64980 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 64976.6 -0.2
+  Current Position: X=6.4977, Y=-0.0000
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 64976.6 -0.2
+   => Final Position: X = 6.4977 mm, Y = -0.0000 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+pk=288 чет кошмар какой
+AB/Documents/Visual Studio 2022/vscode/asi-ir/pupu.py"
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 64976.6 -0.4
+   => Start Position: X = 6.4977 mm, Y = -0.0000 mm
+
+--- Loop 1 of 5 ---
+  Target: X=6.5977, Y=-0.0000
+  CMD > M X=65976 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 65974.4 -0.9
+  Current Position: X=6.5974, Y=-0.0001
+
+--- Loop 2 of 5 ---
+  Target: X=6.6977, Y=-0.0000
+  CMD > M X=66976 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 66975.8 -0.9
+  Current Position: X=6.6976, Y=-0.0001
+
+--- Loop 3 of 5 ---
+  Target: X=6.7977, Y=-0.0000
+  CMD > M X=67976 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 67972.5 -0.9
+  Current Position: X=6.7973, Y=-0.0001
+
+--- Loop 4 of 5 ---
+  Target: X=6.8977, Y=-0.0000
+  CMD > M X=68976 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 68971.3 -0.9
+  Current Position: X=6.8971, Y=-0.0001
+
+--- Loop 5 of 5 ---
+  Target: X=6.9977, Y=-0.0000
+  CMD > M X=69976 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 69972.9 -0.9
+  Current Position: X=6.9973, Y=-0.0001
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 69972.9 -0.9
+   => Final Position: X = 6.9973 mm, Y = -0.0001 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+pk=230
+AB/Documents/Visual Studio 2022/vscode/asi-ir/pupu.py"
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 69972.6 -0.9
+   => Start Position: X = 6.9973 mm, Y = -0.0001 mm
+
+--- Loop 1 of 5 ---
+  Target: X=7.0973, Y=-0.0001
+  CMD > M X=70972 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 70968.9 -0.7
+  Current Position: X=7.0969, Y=-0.0001
+
+--- Loop 2 of 5 ---
+  Target: X=7.1973, Y=-0.0001
+  CMD > M X=71972 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 71971.2 -0.7
+  Current Position: X=7.1971, Y=-0.0001
+
+--- Loop 3 of 5 ---
+  Target: X=7.2973, Y=-0.0001
+  CMD > M X=72972 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 72970.8 -0.7
+  Current Position: X=7.2971, Y=-0.0001
+
+--- Loop 4 of 5 ---
+  Target: X=7.3973, Y=-0.0001
+  CMD > M X=73972 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 73969.5 -0.7
+  Current Position: X=7.3970, Y=-0.0001
+
+--- Loop 5 of 5 ---
+  Target: X=7.4973, Y=-0.0001
+  CMD > M X=74972 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 74969.6 -0.7
+  Current Position: X=7.4970, Y=-0.0001
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 74969.6 -0.7
+   => Final Position: X = 7.4970 mm, Y = -0.0001 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+
+pk=184
+AB/Documents/Visual Studio 2022/vscode/asi-ir/pupu.py"
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 74969.4 -0.7
+   => Start Position: X = 7.4969 mm, Y = -0.0001 mm
+
+--- Loop 1 of 5 ---
+  Target: X=7.5969, Y=-0.0001
+  CMD > M X=75969 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 75968.1 -0.2
+  Current Position: X=7.5968, Y=-0.0000
+
+--- Loop 2 of 5 ---
+  Target: X=7.6969, Y=-0.0001
+  CMD > M X=76969 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 76967.7 -0.2
+  Current Position: X=7.6968, Y=-0.0000
+
+--- Loop 3 of 5 ---
+  Target: X=7.7969, Y=-0.0001
+  CMD > M X=77969 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 77968.4 -0.2
+  Current Position: X=7.7968, Y=-0.0000
+
+--- Loop 4 of 5 ---
+  Target: X=7.8969, Y=-0.0001
+  CMD > M X=78969 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 78967.6 -0.2
+  Current Position: X=7.8968, Y=-0.0000
+
+--- Loop 5 of 5 ---
+  Target: X=7.9969, Y=-0.0001
+  CMD > M X=79969 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 79968.8 -0.2
+  Current Position: X=7.9969, Y=-0.0000
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 79968.5 -0.2
+   => Final Position: X = 7.9969 mm, Y = -0.0000 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+pk=147
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 79968.5 -0.2
+   => Start Position: X = 7.9969 mm, Y = -0.0000 mm
+
+--- Loop 1 of 5 ---
+  Target: X=8.0968, Y=-0.0000
+  CMD > M X=80968 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 80967.1 -0.2
+  Current Position: X=8.0967, Y=-0.0000
+
+--- Loop 2 of 5 ---
+  Target: X=8.1968, Y=-0.0000
+  CMD > M X=81968 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 81967.3 -0.2
+  Current Position: X=8.1967, Y=-0.0000
+
+--- Loop 3 of 5 ---
+  Target: X=8.2969, Y=-0.0000
+  CMD > M X=82968 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 82965.8 -0.2
+  Current Position: X=8.2966, Y=-0.0000
+
+--- Loop 4 of 5 ---
+  Target: X=8.3969, Y=-0.0000
+  CMD > M X=83968 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 83967.0 -0.2
+  Current Position: X=8.3967, Y=-0.0000
+
+--- Loop 5 of 5 ---
+  Target: X=8.4969, Y=-0.0000
+  CMD > M X=84968 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 84965.9 -0.2
+  Current Position: X=8.4966, Y=-0.0000
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 84965.9 -0.2
+   => Final Position: X = 8.4966 mm, Y = -0.0000 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+pk=117
+AB/Documents/Visual Studio 2022/vscode/asi-ir/pupu.py"
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 84965.9 -0.2
+   => Start Position: X = 8.4966 mm, Y = -0.0000 mm
+
+--- Loop 1 of 5 ---
+  Target: X=8.5966, Y=-0.0000
+  CMD > M X=85965 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 85964.2 -0.2
+  Current Position: X=8.5964, Y=-0.0000
+
+--- Loop 2 of 5 ---
+  Target: X=8.6966, Y=-0.0000
+  CMD > M X=86965 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 86965.0 -0.2
+  Current Position: X=8.6965, Y=-0.0000
+
+--- Loop 3 of 5 ---
+  Target: X=8.7966, Y=-0.0000
+  CMD > M X=87965 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 87962.8 -0.2
+  Current Position: X=8.7963, Y=-0.0000
+
+--- Loop 4 of 5 ---
+  Target: X=8.8966, Y=-0.0000
+  CMD > M X=88965 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 88962.2 -0.2
+  Current Position: X=8.8962, Y=-0.0000
+
+--- Loop 5 of 5 ---
+  Target: X=8.9966, Y=-0.0000
+  CMD > M X=89965 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 89964.2 -0.2
+  Current Position: X=8.9964, Y=-0.0000
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 89964.2 -0.2
+   => Final Position: X = 8.9964 mm, Y = -0.0000 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+pk=93
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> & "C:/Program Files/Python39/python.exe" "c:/Users/QE LAB/Documents/Visual Studio 2022/vscode/asi-ir/pupu.py"
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 89964.2 -0.2
+   => Start Position: X = 8.9964 mm, Y = -0.0000 mm
+
+--- Loop 1 of 5 ---
+  Target: X=9.0964, Y=-0.0000
+  CMD > M X=90964 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 90962.1 0.9
+  Current Position: X=9.0962, Y=0.0001
+
+--- Loop 2 of 5 ---
+  Target: X=9.1964, Y=-0.0000
+  CMD > M X=91964 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 91963.0 0.9
+  Current Position: X=9.1963, Y=0.0001
+
+--- Loop 3 of 5 ---
+  Target: X=9.2964, Y=-0.0000
+  CMD > M X=92964 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 92962.6 1.1
+  Current Position: X=9.2963, Y=0.0001
+
+--- Loop 4 of 5 ---
+  Target: X=9.3964, Y=-0.0000
+  CMD > M X=93964 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 93963.1 1.1
+  Current Position: X=9.3963, Y=0.0001
+
+--- Loop 5 of 5 ---
+  Target: X=9.4964, Y=-0.0000
+  CMD > M X=94964 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 94962.7 0.9
+  Current Position: X=9.4963, Y=0.0001
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 94962.7 0.9
+   => Final Position: X = 9.4963 mm, Y = 0.0001 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+pk=74
+S C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> & "C:/Program Files/Python39/python.exe" "c:/Users/QE LAB/Documents/Visual Studio 2022/vscode/asi-ir/pupu.py"
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 94962.7 0.9
+   => Start Position: X = 9.4963 mm, Y = 0.0001 mm
+
+--- Loop 1 of 5 ---
+  Target: X=9.5963, Y=0.0001
+  CMD > M X=95962 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 95960.8 2.6
+  Current Position: X=9.5961, Y=0.0003
+
+--- Loop 2 of 5 ---
+  Target: X=9.6963, Y=0.0001
+  CMD > M X=96962 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 96959.5 2.6
+  Current Position: X=9.6959, Y=0.0003
+
+--- Loop 3 of 5 ---
+  Target: X=9.7963, Y=0.0001
+  CMD > M X=97962 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 97960.0 2.6
+  Current Position: X=9.7960, Y=0.0003
+
+--- Loop 4 of 5 ---
+  Target: X=9.8963, Y=0.0001
+  CMD > M X=98962 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 98960.1 2.9
+  Current Position: X=9.8960, Y=0.0003
+
+--- Loop 5 of 5 ---
+  Target: X=9.9963, Y=0.0001
+  CMD > M X=99962 Y=0
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 99959.5 2.6
+  Current Position: X=9.9960, Y=0.0003
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 99959.5 2.6
+   => Final Position: X = 9.9960 mm, Y = 0.0003 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+p=59
+AB/Documents/Visual Studio 2022/vscode/asi-ir/pupu.py"
+Connecting to COM4...
+Connection successful.
+
+--- TTL SETUP ---
+  CMD > RT Y=10
+  RSP < :A
+  CMD > TTL Y=2
+  RSP < :A
+
+--- TEST START ---
+1. Getting initial position...
+  CMD > W X Y
+  RSP < :A 99959.2 2.6
+   => Start Position: X = 9.9959 mm, Y = 0.0003 mm
+
+--- Loop 1 of 5 ---
+  Target: X=10.0959, Y=0.0003
+  CMD > M X=100959 Y=2
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 100954.7 2.2
+  Current Position: X=10.0955, Y=0.0002
+
+--- Loop 2 of 5 ---
+  Target: X=10.1959, Y=0.0003
+  CMD > M X=101959 Y=2
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 101958.7 2.0
+  Current Position: X=10.1959, Y=0.0002
+
+--- Loop 3 of 5 ---
+  Target: X=10.2959, Y=0.0003
+  CMD > M X=102959 Y=2
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 102955.9 1.8
+  Current Position: X=10.2956, Y=0.0002
+
+--- Loop 4 of 5 ---
+  Target: X=10.3959, Y=0.0003
+  CMD > M X=103959 Y=2
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 103958.4 2.0
+  Current Position: X=10.3958, Y=0.0002
+
+--- Loop 5 of 5 ---
+  Target: X=10.4959, Y=0.0003
+  CMD > M X=104959 Y=2
+  RSP < :A
+  Waiting for move to complete...
+  ...Move complete.
+  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<
+  Verifying position...
+  CMD > W X Y
+  RSP < :A 104953.6 2.2
+  Current Position: X=10.4954, Y=0.0002
+
+--- FINAL POSITION CHECK ---
+  CMD > W X Y
+  RSP < :A 104954.4 2.2
+   => Final Position: X = 10.4954 mm, Y = 0.0002 mm
+
+--- CLEANUP ---
+  CMD > TTL Y=0
+  RSP < :A
+Serial port closed.
+PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
