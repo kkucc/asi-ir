@@ -5,7 +5,7 @@ from typing import Optional
 COM_PORT = "COM4"
 BAUD_RATE = 9600
 UNITS_MM_TO_DEVICE = 10000
-CALIBRATION_DISTANCE_MM = 20.0
+CALIBRATION_DISTANCE_MM = 15.0
 
 ser: Optional[serial.Serial] = None
 
