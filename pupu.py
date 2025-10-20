@@ -2,20 +2,24 @@ import serial
 import time
 from typing import Optional
 
+# --- НАСТРОЙКИ ---
 COM_PORT = "COM4"
 BAUD_RATE = 9600
 UNITS_MM_TO_DEVICE = 10000
-MOVE_DISTANCE_X_MM = 5.0
-PULSE_DURATION_MS = 10 # Длительность TTL импульса в миллисекундах
+MOVE_DISTANCE_X_MM = 0.1
+PULSE_DURATION_MS = 10 
+NUM_MOVES = 5
 
 ser: Optional[serial.Serial] = None
 
-def send_command(cmd: str) -> str:
+def send_command(cmd: str, quiet: bool = False) -> str:
+    """Отправляет команду и возвращает ответ. 'quiet' подавляет лог."""
     global ser
-    print(f"  CMD > {cmd}")
+    if not quiet: print(f"  CMD > {cmd}")
     ser.reset_input_buffer(); ser.reset_output_buffer()
     ser.write(f"{cmd}\r".encode('ascii'))
     response = ser.read_until(b'\r\n').decode('ascii').strip()
+    if not quiet: print(f"  RSP < {response}")
     return response
 
 def get_position() -> Optional[tuple[float, float]]:
@@ -26,12 +30,15 @@ def get_position() -> Optional[tuple[float, float]]:
     return None
 
 def wait_for_idle():
+    """Ждет, пока столик не завершит движение, с таймаутом."""
     print("  Waiting for move to complete...")
-    while True:
-        if ser.write(b'/\r') and ser.read(1) == b'N':
+    start_time = time.time()
+    while time.time() - start_time < 10: # Таймаут 10 секунд
+        if send_command("/", quiet=True) == 'N':
             print("  ...Move complete.")
             return
         time.sleep(0.05)
+    raise TimeoutError("Stage did not become idle in 10 seconds!")
 
 try:
     print(f"Connecting to {COM_PORT}...")
@@ -41,27 +48,38 @@ try:
     print("Connection successful.")
 
     print("\n--- TTL SETUP ---")
-    print(f"Setting TTL pulse duration to {PULSE_DURATION_MS} ms...")
     send_command(f"RT Y={PULSE_DURATION_MS}")
-    print("Enabling 'Pulse on Move Completion' mode (TTL Y=2)...")
     send_command("TTL Y=2")
 
     print("\n--- TEST START ---")
     print("1. Getting initial position...")
-    start_x, start_y = get_position()
+    start_pos = get_position()
+    if not start_pos: raise ConnectionError("Failed to get start position")
+    start_x, start_y = start_pos
     print(f"   => Start Position: X = {start_x:.4f} mm, Y = {start_y:.4f} mm")
-    for i in range(5):
-        target_x = start_x + MOVE_DISTANCE_X_MM*(i + 1)
-        print(f"\n2. Moving X by {MOVE_DISTANCE_X_MM} mm...")
-        send_command(f"M X={int(target_x * UNITS_MM_TO_DEVICE)} Y={int(start_y * UNITS_MM_TO_DEVICE)}")
+    
+    for i in range(NUM_MOVES):
+        print(f"\n--- Loop {i+1} of {NUM_MOVES} ---")
+        target_x = start_x + MOVE_DISTANCE_X_MM * (i + 1)
         
+        print(f"  Target: X={target_x:.4f}, Y={start_y:.4f}")
+        send_command(f"M X={int(target_x * UNITS_MM_TO_DEVICE)} Y={int(start_y * UNITS_MM_TO_DEVICE)}")
+       
         wait_for_idle()
 
-        print("\n>>> TTL PULSE HAS BEEN SENT BY THE CONTROLLER! <<<\n")
+        print("  >>> TTL PULSE SHOULD HAVE BEEN SENT! <<<")
+
+        print("  Verifying position...")
+        current_pos = get_position()
+        if current_pos:
+            print(f"  Current Position: X={current_pos[0]:.4f}, Y={current_pos[1]:.4f}")
+        else:
+            print("  Could not verify position after move!")
         
-    print("3. Getting final position...")
-    end_x, end_y = get_position()
-    print(f"   => Final Position: X = {end_x:.4f} mm, Y = {end_y:.4f} mm")
+    print("\n--- FINAL POSITION CHECK ---")
+    final_pos = get_position()
+    if final_pos:
+        print(f"   => Final Position: X = {final_pos[0]:.4f} mm, Y = {final_pos[1]:.4f} mm")
 
 except Exception as e:
     print(f"\nAN ERROR OCCURRED: {e}")
@@ -69,7 +87,6 @@ except Exception as e:
 finally:
     if ser and ser.is_open:
         print("\n--- CLEANUP ---")
-        print("Disabling TTL mode (TTL Y=0)...")
-        send_command("TTL Y=0") # Возвращаем выход в состояние LOW
+        send_command("TTL Y=0") 
         ser.close()
         print("Serial port closed.")
