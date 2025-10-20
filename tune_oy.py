@@ -5,18 +5,18 @@ from typing import Optional
 COM_PORT = "COM4"
 BAUD_RATE = 9600
 UNITS_MM_TO_DEVICE = 10000
-CALIBRATION_DISTANCE_MM = 20.0 # Едем на 20 мм для точности
+CALIBRATION_DISTANCE_MM = 20.0
 
 ser: Optional[serial.Serial] = None
 
-def send_command(cmd: str, quiet: bool = False) -> str:
-    """Отправляет команду и возвращает ответ. 'quiet' подавляет лог."""
+def send_command(cmd: str) -> str:
+    """Универсальная функция для команд, возвращающих полную строку."""
     global ser
-    if not quiet: print(f"  CMD > {cmd}")
+    print(f"  CMD > {cmd}")
     ser.reset_input_buffer(); ser.reset_output_buffer()
     ser.write(f"{cmd}\r".encode('ascii'))
     response = ser.read_until(b'\r\n').decode('ascii').strip()
-    if not quiet: print(f"  RSP < {response}")
+    print(f"  RSP < {response}")
     return response
 
 def get_position() -> Optional[tuple[float, float]]:
@@ -27,25 +27,42 @@ def get_position() -> Optional[tuple[float, float]]:
     return None
 
 def wait_for_idle():
-    """Ждет, пока столик не завершит движение, с таймаутом."""
-    print("  Waiting for move to complete...")
+    """
+    ИСПРАВЛЕНО: Специализированная функция, которая правильно читает
+    односимвольный ответ от команды '/'.
+    """
+    print("  Waiting for move to complete (polling status with '/')...")
     start_time = time.time()
-    while time.time() - start_time < 20: # Таймаут 20 секунд
-        if send_command("/", quiet=True) == 'N': # Теперь этот вызов корректен
-            print("  ...Move complete.")
-            return
-        time.sleep(0.05)
+    while time.time() - start_time < 20: # Общий таймаут 20 секунд
+        try:
+            ser.reset_input_buffer()
+            ser.write(b'/\r')
+            response_byte = ser.read(1) # Читаем ровно 1 байт
+
+            if not response_byte:
+                print("  (timeout on read, retrying...)")
+                continue
+            
+            status = response_byte.decode('ascii')
+            print(f"  Got status: '{status}'") 
+            if status == 'N':
+                print("  ...Move complete (Got 'N').")
+                return
+            
+            time.sleep(0.1) # Небольшая пауза между запросами
+        except serial.SerialException as e:
+            print(f"  Serial error while waiting: {e}")
+            time.sleep(0.5)
+
     raise TimeoutError("Stage did not become idle!")
 
 try:
     print(f"Connecting to {COM_PORT}...")
-    ser = serial.Serial(COM_PORT, BAUD_RATE, timeout=1.0)
+    ser = serial.Serial(COM_PORT, BAUD_RATE, timeout=0.5) # Уменьшил таймаут порта
     time.sleep(0.2); ser.write(bytes([255, 72])); time.sleep(0.1); ser.read_all()
     print("Connection successful.")
 
     print("\n--- Orthogonality Calibration ---")
-    print("This will measure the drift of the Y-axis while moving along X.")
-
     print("\n1. Moving to starting point (0, 0)...")
     send_command(f"M X=0 Y=0")
     wait_for_idle()
@@ -57,7 +74,6 @@ try:
 
     print(f"\n2. Moving {CALIBRATION_DISTANCE_MM} mm along X-axis...")
     target_x = start_x + CALIBRATION_DISTANCE_MM
-    # Команда на движение должна быть с целочисленными координатами Y
     send_command(f"M X={int(target_x * UNITS_MM_TO_DEVICE)} Y={int(start_y * UNITS_MM_TO_DEVICE)}")
     wait_for_idle()
 
@@ -69,7 +85,7 @@ try:
     delta_x = end_x - start_x
     delta_y = end_y - start_y
     
-    if abs(delta_x) < 1.0: # Если по какой-то причине не сдвинулись
+    if abs(delta_x) < 1.0:
         print("\nERROR: Stage did not move significantly along X. Cannot calculate.")
     else:
         correction_factor = delta_y / delta_x
