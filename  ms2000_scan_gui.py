@@ -16,7 +16,6 @@ UNITS_MM_TO_DEVICE = 10000
 STAGE_X_MIN, STAGE_X_MAX = -34.0, 39.0
 STAGE_Y_MIN, STAGE_Y_MAX = -34.0, 39.0
 
-
 class AcquisitionDevice(abc.ABC):
     @abc.abstractmethod
     def acquire(self, dwell_time: float, x: float, y: float) -> Any: pass
@@ -24,7 +23,7 @@ class AcquisitionDevice(abc.ABC):
 
 class SmartDummySignal(AcquisitionDevice):
     def acquire(self, dwell_time: float, x: float, y: float) -> float:
-        time.sleep(dwell_time) # Имитируем реальное ожидание
+        time.sleep(dwell_time)
         center_x, center_y, radius = 10.0, 10.0, 5.0
         distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
         if distance < radius: return 90 + np.random.rand() * 10
@@ -34,7 +33,6 @@ class RandomNoiseDevice(AcquisitionDevice):
     def acquire(self, dwell_time: float, x: float, y: float) -> float:
         time.sleep(dwell_time)
         return np.random.rand() * 100
-
 
 class MS2000Controller:
     def __init__(self, log_callback: Callable[[str], None]):
@@ -65,23 +63,50 @@ class MS2000Controller:
                 return response
             except Exception as e: self.log(f"ERROR: {e}"); return None
     def wait_for_idle(self):
-        timeout = 5.0 
+        timeout = 15.0 
         start_time = time.time()
         while not self.stop_event.is_set():
             if self.send_command("/", quiet=True) == 'N': return
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.05)
+            
+    def get_position(self) -> Optional[tuple[float, float]]:
+        response = self.send_command("W X Y")
+        if response and response.startswith(":A"):
+            try:
+                parts = response.split()
+                x_mm = float(parts[1]) / UNITS_MM_TO_DEVICE
+                y_mm = float(parts[2]) / UNITS_MM_TO_DEVICE
+                return x_mm, y_mm
+            except (ValueError, IndexError):
+                self.log("ERROR: Could not parse position.")
+                return None
+        return None
+
     def move_absolute(self, x, y): self.send_command(f"M X={int(x*UNITS_MM_TO_DEVICE)} Y={int(y*UNITS_MM_TO_DEVICE)}")
     
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
-        self.log(f"INFO: --- Starting Software-Timed Scan with {device} ---")
+        self.log(f"INFO: --- Starting Scan with {device} ---")
         try:
+            travel_speed = 0.1 
+            self.log(f"INFO: Setting travel speed to {travel_speed} mm/s")
+            self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
+            
+            self.log(f"INFO: Moving slowly to scan start point ({params['start_x']:.3f}, {params['start_y']:.3f})...")
+            self.move_absolute(params['start_x'], params['start_y'])
+            self.wait_for_idle()
+
+            if self.stop_event.is_set(): raise InterruptedError
+
             steps_x, steps_y = int(params['steps_x']), int(params['steps_y'])
             x_coords = np.linspace(params['start_x'], params['end_x'], steps_x)
             y_coords = np.linspace(params['start_y'], params['end_y'], steps_y)
             results = np.full((steps_y, steps_x), np.nan)
+            
+            self.log(f"INFO: Setting scan speed to {params['speed']} mm/s")
             self.send_command(f"S X={params['speed']} Y={params['speed']}")
+
             for i, y in enumerate(y_coords):
                 xs = x_coords if i % 2 == 0 else x_coords[::-1]
                 for j, x in enumerate(xs):
@@ -101,11 +126,9 @@ class MS2000Controller:
 class StageControlApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("MS-2000 Cockpit v19 (Timestamp Log)")
+        self.root.title("MS-2000 Cockpit v20 (Pro Features)")
         self.root.geometry("700x520")
-        
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
-        
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents = [STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
         self.scan_thread=None; self.progress_line=None; self.scan_image=None; self.scan_area_patch=None
@@ -128,11 +151,34 @@ class StageControlApp:
         map_controls=ttk.Frame(top_right); map_controls.pack(fill=tk.X, pady=5); ttk.Label(map_controls, text="Map View:").pack(side=tk.LEFT); ttk.Button(map_controls, text="+", width=3, command=self.zoom_in).pack(side=tk.LEFT); ttk.Button(map_controls, text="-", width=3, command=self.zoom_out).pack(side=tk.LEFT); ttk.Button(map_controls, text="Reset", command=self.reset_zoom).pack(side=tk.LEFT)
         self.canvas.mpl_connect('button_press_event', self.on_pan_press); self.canvas.mpl_connect('motion_notify_event', self.on_pan_motion); self.canvas.mpl_connect('button_release_event', self.on_pan_release)
         param_frame=ttk.LabelFrame(bottom_left, text="Scan Parameters", padding=10); param_frame.pack(expand=True,fill=tk.BOTH); self.scan_entries={}
-        ttk.Label(param_frame, text="X-Axis", font='-weight bold').grid(row=0, column=0, columnspan=2, pady=5); ttk.Label(param_frame, text="Y-Axis", font='-weight bold').grid(row=0, column=3, columnspan=2, pady=5)
-        for i,(k,(l,v)) in enumerate({"start_x":("Start","0.0"), "steps_x":("Points","50"), "step_x":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+1,column=0,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+1,column=1,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
-        for i,(k,(l,v)) in enumerate({"start_y":("Start","0.0"), "steps_y":("Points","50"), "step_y":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+1,column=3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+1,column=4,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
-        param_frame.columnconfigure(2,minsize=20); ttk.Separator(param_frame,orient='horizontal').grid(row=4,column=0,columnspan=5,sticky='ew',pady=10)
-        for i,(k,(l,v)) in enumerate({"speed":("Speed","2.0"),"dwell":("Dwell","0.01")}.items()): ttk.Label(param_frame,text=l+":").grid(row=5,column=i*3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=5,column=i*3+1,padx=5);self.scan_entries[k]=e
+        
+        get_pos_button = ttk.Button(param_frame, text="Get Current", command=self.get_current_position_as_start)
+        get_pos_button.grid(row=0, column=0, columnspan=2, pady=(0, 5))
+        
+        ttk.Label(param_frame, text="X-Axis", font='-weight bold').grid(row=1, column=0, columnspan=2, pady=5); ttk.Label(param_frame, text="Y-Axis", font='-weight bold').grid(row=1, column=3, columnspan=2, pady=5)
+        for i,(k,(l,v)) in enumerate({"start_x":("Start","0.0"), "steps_x":("Points","50"), "step_x":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+2,column=0,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+2,column=1,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
+        for i,(k,(l,v)) in enumerate({"start_y":("Start","0.0"), "steps_y":("Points","50"), "step_y":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+2,column=3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+2,column=4,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
+        param_frame.columnconfigure(2,minsize=20); ttk.Separator(param_frame,orient='horizontal').grid(row=5,column=0,columnspan=5,sticky='ew',pady=10)
+        for i,(k,(l,v)) in enumerate({"speed":("Speed","2.0"),"dwell":("Dwell","0.01")}.items()): ttk.Label(param_frame,text=l+":").grid(row=6,column=i*3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=6,column=i*3+1,padx=5);self.scan_entries[k]=e
+    
+    def get_current_position_as_start(self):
+        if not self.controller.is_connected():
+            messagebox.showwarning("Warning", "Not connected to the stage.")
+            return
+        
+        self.controller.log("INFO: Querying current stage position...")
+        pos = self.controller.get_position()
+        if pos:
+            x, y = pos
+            self.controller.log(f"INFO: Position received: X={x:.4f}, Y={y:.4f}")
+            self.scan_entries['start_x'].delete(0, tk.END)
+            self.scan_entries['start_x'].insert(0, f"{x:.4f}")
+            self.scan_entries['start_y'].delete(0, tk.END)
+            self.scan_entries['start_y'].insert(0, f"{y:.4f}")
+            self.update_scan_area_preview()
+        else:
+            messagebox.showerror("Error", "Failed to get position from the stage.")
+
     def setup_minimap(self):
         self.ax.clear();self.ax.set_xticks([]);self.ax.set_yticks([]);self.ax.set_facecolor('#cccccc');self.ax.set_aspect('equal',adjustable='box')
         self.scan_image=None;self.scan_area_patch=None
@@ -169,8 +215,7 @@ class StageControlApp:
     def plot_scan_data(self,data,row_index):
         p=self.get_scan_params(False);
         if not p: return
-        extent=[p['start_x'],p['end_x'],p['start_y'],p['end_y']]
-        cmap=cm.get_cmap('viridis').copy();cmap.set_bad(color='black')
+        extent=[p['start_x'],p['end_x'],p['start_y'],p['end_y']]; cmap=cm.get_cmap('viridis').copy();cmap.set_bad(color='black')
         if not self.scan_image:self.scan_image=self.ax.imshow(data,cmap=cmap,origin='lower',extent=extent,interpolation='none',vmin=0,vmax=100)
         else:self.scan_image.set_data(data);self.scan_image.set_extent(extent)
         if not np.all(np.isnan(data)):self.scan_image.set_clim(np.nanmin(data),np.nanmax(data))
