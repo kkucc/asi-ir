@@ -88,6 +88,7 @@ class MS2000Controller:
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
         self.log(f"INFO: --- Starting Scan with {device} ---")
+        
         try:
             travel_speed = 0.1 
             self.log(f"INFO: Setting travel speed to {travel_speed} mm/s")
@@ -96,7 +97,7 @@ class MS2000Controller:
             self.log(f"INFO: Moving slowly to scan start point ({params['start_x']:.3f}, {params['start_y']:.3f})...")
             self.move_absolute(params['start_x'], params['start_y'])
             self.wait_for_idle()
-
+            self.send_command(f"B X={0} Y={0}")
             if self.stop_event.is_set(): raise InterruptedError
 
             steps_x, steps_y = int(params['steps_x']), int(params['steps_y'])

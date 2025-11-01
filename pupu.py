@@ -5,8 +5,8 @@ from typing import Optional
 COM_PORT = "COM4"
 BAUD_RATE = 9600
 UNITS_MM_TO_DEVICE = 10000
-MOVE_DISTANCE_X_MM = 0.5
-DWELL_TIME_MS = 100     # (dwell)
+MOVE_DISTANCE_X_MM = 0.001
+DWELL_TIME_MS = 500     # (dwell)
 NUM_MOVES = 5
 
 ser: Optional[serial.Serial] = None
