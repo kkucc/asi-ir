@@ -1,1 +1,1 @@
-6_30x30_QDs_1mkm.csv
+1_2mkW_10MhZ_50x50_CsPb(BrCl)3.csv
