@@ -1,4 +1,4 @@
-# ms2000_cockpit_v21_set_center.py
+# ms2000_cockpit_v22_axis_inversion.py
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial
@@ -13,32 +13,45 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.cm as cm
 from matplotlib.patches import Rectangle
 
-UNITS_MM_TO_DEVICE = 10000
-STAGE_X_MIN, STAGE_X_MAX = -34.0, 39.0
-STAGE_Y_MIN, STAGE_Y_MAX = -34.0, 39.0
-
+# ... КОНСТАНТЫ и ЗАГЛУШКИ (без изменений) ...
+UNITS_MM_TO_DEVICE = 10000; STAGE_X_MIN, STAGE_X_MAX = -34.0, 39.0; STAGE_Y_MIN, STAGE_Y_MAX = -34.0, 39.0
 class AcquisitionDevice(abc.ABC):
     @abc.abstractmethod
     def acquire(self, dwell_time: float, x: float, y: float) -> Any: pass
     def __str__(self): return self.__class__.__name__
-
 class SmartDummySignal(AcquisitionDevice):
     def acquire(self, dwell_time: float, x: float, y: float) -> float:
-        time.sleep(dwell_time)
-        center_x, center_y, radius = 10.0, 10.0, 5.0
-        distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-        if distance < radius: return 90 + np.random.rand() * 10
-        else: return 10 + np.random.rand() * 10
-
+        time.sleep(dwell_time); center_x, center_y, radius = 10.0, 10.0, 5.0
+        distance = np.sqrt((x-center_x)**2 + (y-center_y)**2)
+        return 90 + np.random.rand() * 10 if distance < radius else 10 + np.random.rand() * 10
 class RandomNoiseDevice(AcquisitionDevice):
     def acquire(self, dwell_time: float, x: float, y: float) -> float:
-        time.sleep(dwell_time)
-        return np.random.rand() * 100
+        time.sleep(dwell_time); return np.random.rand() * 100
 
+# --- КЛАСС УПРАВЛЕНИЯ СТОЛИКОМ (ИЗМЕНЕН) ---
 class MS2000Controller:
     def __init__(self, log_callback: Callable[[str], None]):
         self.ser: Optional[serial.Serial] = None; self.is_running_scan = False
         self.stop_event = threading.Event(); self.log = log_callback; self.lock = threading.Lock()
+        ### NEW ###
+        self.invert_x = tk.BooleanVar(value=True)  # Инвертируем X (который станет Y для столика)
+        self.invert_y = tk.BooleanVar(value=False)
+        self.swap_xy = tk.BooleanVar(value=True)   # Меняем оси местами
+
+    def _transform_coords_to_stage(self, x_gui, y_gui):
+        """Преобразует координаты из ГУИ в координаты для столика."""
+        x_stage, y_stage = (y_gui, x_gui) if self.swap_xy.get() else (x_gui, y_gui)
+        if self.invert_x.get(): x_stage *= -1
+        if self.invert_y.get(): y_stage *= -1
+        return x_stage, y_stage
+
+    def _transform_coords_from_stage(self, x_stage, y_stage):
+        """Преобразует координаты от столика в координаты для ГУИ."""
+        x_temp, y_temp = x_stage, y_stage
+        if self.invert_x.get(): x_temp *= -1
+        if self.invert_y.get(): y_temp *= -1
+        return (y_temp, x_temp) if self.swap_xy.get() else (x_temp, y_temp)
+
     def is_connected(self) -> bool: return self.ser is not None and self.ser.is_open
     def connect(self, port, baud):
         try:
@@ -54,6 +67,7 @@ class MS2000Controller:
             try: self.ser.write(bytes([255, 72])); time.sleep(0.1)
             except: pass
     def send_command(self, cmd, quiet=False):
+        # ... (без изменений)
         if not self.is_connected(): return None
         with self.lock:
             try:
@@ -64,29 +78,37 @@ class MS2000Controller:
                 return response
             except Exception as e: self.log(f"ERROR: {e}"); return None
     def wait_for_idle(self):
+        # ... (без изменений)
         timeout = 15.0 
         start_time = time.time()
         while not self.stop_event.is_set():
             if self.send_command("/", quiet=True) == 'N': return
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.05)
+            
+    ### MODIFIED ###
     def get_position(self) -> Optional[tuple[float, float]]:
         response = self.send_command("W X Y")
         if response and response.startswith(":A"):
             try:
                 parts = response.split()
-                x_mm = float(parts[1]) / UNITS_MM_TO_DEVICE
-                y_mm = float(parts[2]) / UNITS_MM_TO_DEVICE
-                return x_mm, y_mm
-            except (ValueError, IndexError):
-                self.log("ERROR: Could not parse position.")
-                return None
+                x_stage = float(parts[1]) / UNITS_MM_TO_DEVICE
+                y_stage = float(parts[2]) / UNITS_MM_TO_DEVICE
+                return self._transform_coords_from_stage(x_stage, y_stage) # Обратное преобразование
+            except: self.log("ERROR: Could not parse position."); return None
         return None
-    def move_absolute(self, x, y): self.send_command(f"M X={int(x*UNITS_MM_TO_DEVICE)} Y={int(y*UNITS_MM_TO_DEVICE)}")
+
+    ### MODIFIED ###
+    def move_absolute(self, x_gui, y_gui):
+        x_stage, y_stage = self._transform_coords_to_stage(x_gui, y_gui)
+        self.send_command(f"M X={int(x_stage*UNITS_MM_TO_DEVICE)} Y={int(y_stage*UNITS_MM_TO_DEVICE)}")
+    
+    ### MODIFIED ###
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
         self.log(f"INFO: --- Starting Scan with {device} ---")
         try:
+            # ... (логика сканирования не меняется, так как она работает с GUI координатами)
             travel_speed = 0.1 
             self.log(f"INFO: Setting travel speed to {travel_speed} mm/s")
             self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
@@ -113,11 +135,13 @@ class MS2000Controller:
         except InterruptedError: self.log("INFO: --- Scan Stopped ---"); self.send_command(chr(92))
         except Exception as e: self.log(f"ERROR: --- Scan Failed: {e} ---"); self.send_command(chr(92))
         finally: self.is_running_scan = False
+            
     def stop_scan(self): self.log("INFO: Stop signal sent."); self.stop_event.set()
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v21 (Set Center)"); self.root.geometry("700x520")
+        # ... (init без изменений)
+        self.root = root; self.root.title("MS-2000 Cockpit v22 (Axis Inversion)"); self.root.geometry("700x520")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents = [STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
@@ -127,13 +151,27 @@ class StageControlApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def _create_widgets(self):
+        # ... (основная компоновка без изменений)
         main_frame = ttk.Frame(self.root, padding=10); main_frame.pack(fill=tk.BOTH, expand=True); main_frame.columnconfigure(0, weight=1); main_frame.columnconfigure(1, weight=0); main_frame.rowconfigure(1, weight=1)
         top_left=ttk.Frame(main_frame); top_right=ttk.Frame(main_frame, width=280, height=280); bottom_left=ttk.Frame(main_frame)
         top_left.grid(row=0, column=0, sticky="nsew", padx=(0, 10)); top_right.grid(row=0, column=1, rowspan=2, sticky="ne"); bottom_left.grid(row=1, column=0, sticky="nsew", pady=(10, 0)); top_right.grid_propagate(False)
         conn_frame=ttk.LabelFrame(top_left, text="Connection", padding=10); conn_frame.pack(fill=tk.X); scan_ctrl_frame=ttk.LabelFrame(top_left, text="Scan Control", padding=10); scan_ctrl_frame.pack(fill=tk.X, pady=(10,0))
-        self.conn_entries={}; ttk.Label(conn_frame, text="Port:").grid(row=0, column=0); e=ttk.Entry(conn_frame, width=8); e.insert(0, "COM4"); e.grid(row=0, column=1); self.conn_entries['port']=e
-        ttk.Label(conn_frame, text="Baud:").grid(row=1, column=0); e=ttk.Entry(conn_frame, width=8); e.insert(0, "9600"); e.grid(row=1, column=1); self.conn_entries['baudrate']=e
-        btn_frame=ttk.Frame(conn_frame); btn_frame.grid(row=0,column=2,rowspan=2,padx=10); self.connect_button=ttk.Button(btn_frame,text="Connect",command=self.connect); self.connect_button.pack(fill=tk.X); self.disconnect_button=ttk.Button(btn_frame,text="Disconnect",command=self.disconnect,state=tk.DISABLED); self.disconnect_button.pack(fill=tk.X, pady=2)
+
+        # --- ИЗМЕНЕНО: Добавляем чекбоксы в Connection ---
+        self.conn_entries={}; 
+        ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, sticky="w"); e=ttk.Entry(conn_frame, width=8); e.insert(0, "COM4"); e.grid(row=0, column=1); self.conn_entries['port']=e
+        ttk.Label(conn_frame, text="Baud:").grid(row=1, column=0, sticky="w"); e=ttk.Entry(conn_frame, width=8); e.insert(0, "9600"); e.grid(row=1, column=1); self.conn_entries['baudrate']=e
+        
+        check_frame = ttk.Frame(conn_frame); check_frame.grid(row=0, column=2, rowspan=2, padx=10)
+        ttk.Checkbutton(check_frame, text="Swap XY", variable=self.controller.swap_xy).pack(anchor='w')
+        ttk.Checkbutton(check_frame, text="Invert X", variable=self.controller.invert_x).pack(anchor='w')
+        ttk.Checkbutton(check_frame, text="Invert Y", variable=self.controller.invert_y).pack(anchor='w')
+
+        btn_frame=ttk.Frame(conn_frame); btn_frame.grid(row=0,column=3,rowspan=2,padx=5); 
+        self.connect_button=ttk.Button(btn_frame,text="Connect",command=self.connect); self.connect_button.pack(fill=tk.X); 
+        self.disconnect_button=ttk.Button(btn_frame,text="Disconnect",command=self.disconnect,state=tk.DISABLED); self.disconnect_button.pack(fill=tk.X, pady=2)
+        
+        # ... (остальной код виджетов без изменений)
         ttk.Label(scan_ctrl_frame, text="Device:").pack(fill=tk.X); self.device_combobox=ttk.Combobox(scan_ctrl_frame,values=[str(d) for d in self.available_devices],state="readonly"); self.device_combobox.current(0); self.device_combobox.pack(fill=tk.X,pady=(0,5))
         self.start_scan_button=ttk.Button(scan_ctrl_frame,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,5)); self.stop_scan_button=ttk.Button(scan_ctrl_frame,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X)
         self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0,right=1,top=1,bottom=0)
@@ -141,12 +179,7 @@ class StageControlApp:
         map_controls=ttk.Frame(top_right); map_controls.pack(fill=tk.X, pady=5); ttk.Label(map_controls, text="Map View:").pack(side=tk.LEFT); ttk.Button(map_controls, text="+", width=3, command=self.zoom_in).pack(side=tk.LEFT); ttk.Button(map_controls, text="-", width=3, command=self.zoom_out).pack(side=tk.LEFT); ttk.Button(map_controls, text="Reset", command=self.reset_zoom).pack(side=tk.LEFT)
         self.canvas.mpl_connect('button_press_event', self.on_pan_press); self.canvas.mpl_connect('motion_notify_event', self.on_pan_motion); self.canvas.mpl_connect('button_release_event', self.on_pan_release)
         param_frame=ttk.LabelFrame(bottom_left, text="Scan Parameters", padding=10); param_frame.pack(expand=True,fill=tk.BOTH); self.scan_entries={}
-        
-        btn_bar_frame = ttk.Frame(param_frame); btn_bar_frame.grid(row=0, column=0, columnspan=5, pady=(0, 5), sticky="ew")
-        get_pos_button = ttk.Button(btn_bar_frame, text="Get Current as Start", command=self.get_current_position_as_start); get_pos_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,5))
-        ### NEW ###
-        set_center_button = ttk.Button(btn_bar_frame, text="Set Current as Center", command=self.set_current_position_as_center); set_center_button.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
+        btn_bar_frame = ttk.Frame(param_frame); btn_bar_frame.grid(row=0, column=0, columnspan=5, pady=(0, 5), sticky="ew"); get_pos_button = ttk.Button(btn_bar_frame, text="Get Current as Start", command=self.get_current_position_as_start); get_pos_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,5)); set_center_button = ttk.Button(btn_bar_frame, text="Set Current as Center", command=self.set_current_position_as_center); set_center_button.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Label(param_frame, text="X-Axis", font='-weight bold').grid(row=1, column=0, columnspan=2, pady=5); ttk.Label(param_frame, text="Y-Axis", font='-weight bold').grid(row=1, column=3, columnspan=2, pady=5)
         for i,(k,(l,v)) in enumerate({"start_x":("Start","0.0"), "steps_x":("Points","50"), "step_x":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+2,column=0,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+2,column=1,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
         for i,(k,(l,v)) in enumerate({"start_y":("Start","0.0"), "steps_y":("Points","50"), "step_y":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+2,column=3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+2,column=4,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
@@ -154,42 +187,30 @@ class StageControlApp:
         for i,(k,(l,v)) in enumerate({"speed":("Speed","2.0"),"dwell":("Dwell","0.01")}.items()): ttk.Label(param_frame,text=l+":").grid(row=6,column=i*3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=6,column=i*3+1,padx=5);self.scan_entries[k]=e
     
     def get_current_position_as_start(self):
+        # ... (без изменений)
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
         pos = self.controller.get_position()
         if pos:
-            x, y = pos
+            x, y = pos; self.controller.log(f"INFO: Position received: X={x:.4f}, Y={y:.4f}")
             self.scan_entries['start_x'].delete(0, tk.END); self.scan_entries['start_x'].insert(0, f"{x:.4f}")
             self.scan_entries['start_y'].delete(0, tk.END); self.scan_entries['start_y'].insert(0, f"{y:.4f}")
             self.update_scan_area_preview()
         else: messagebox.showerror("Error", "Failed to get position.")
-
-    ### NEW ###
     def set_current_position_as_center(self):
+        # ... (без изменений)
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
-        
-        params = self.get_scan_params(validate=False) # Получаем текущие параметры размера
-        if not params:
-             messagebox.showerror("Error", "Invalid scan size parameters (Points/Step).")
-             return
-
+        params = self.get_scan_params(validate=False)
+        if not params: messagebox.showerror("Error", "Invalid scan size parameters."); return
         pos = self.controller.get_position()
         if pos:
-            center_x, center_y = pos
-            
-            total_width = (params['steps_x'] - 1) * params['step_x']
-            total_height = (params['steps_y'] - 1) * params['step_y']
-            
-            new_start_x = center_x - total_width / 2.0
-            new_start_y = center_y - total_height / 2.0
-            
-            self.scan_entries['start_x'].delete(0, tk.END); self.scan_entries['start_x'].insert(0, f"{new_start_x:.4f}")
-            self.scan_entries['start_y'].delete(0, tk.END); self.scan_entries['start_y'].insert(0, f"{new_start_y:.4f}")
+            center_x, center_y = pos; total_width=(params['steps_x']-1)*params['step_x']; total_height=(params['steps_y']-1)*params['step_y']
+            new_start_x=center_x-total_width/2.0; new_start_y=center_y-total_height/2.0
+            self.scan_entries['start_x'].delete(0,tk.END); self.scan_entries['start_x'].insert(0,f"{new_start_x:.4f}")
+            self.scan_entries['start_y'].delete(0,tk.END); self.scan_entries['start_y'].insert(0,f"{new_start_y:.4f}")
             self.update_scan_area_preview()
-        else:
-            messagebox.showerror("Error", "Failed to get position.")
-
+        else: messagebox.showerror("Error", "Failed to get position.")
     # ... (остальные методы без изменений)
-    def setup_minimap(self): self.ax.clear();self.ax.set_xticks([]);self.ax.set_yticks([]);self.ax.set_facecolor('#cccccc');self.ax.set_aspect('equal',adjustable='box'); self.scan_image=None;self.scan_area_patch=None; self.update_minimap_view()
+    def setup_minimap(self):self.ax.clear();self.ax.set_xticks([]);self.ax.set_yticks([]);self.ax.set_facecolor('#cccccc');self.ax.set_aspect('equal',adjustable='box');self.scan_image=None;self.scan_area_patch=None;self.update_minimap_view()
     def update_minimap_view(self): self.ax.set_xlim(self.minimap_extents[0:2]);self.ax.set_ylim(self.minimap_extents[2:4]);self.canvas.draw()
     def zoom_in(self): x0,x1,y0,y1=self.minimap_extents;cx,cy=(x0+x1)/2,(y0+y1)/2;w,h=(x1-x0)/4,(y1-y0)/4;self.minimap_extents=[cx-w,cx+w,cy-h,cy+h];self.update_minimap_view()
     def zoom_out(self): x0,x1,y0,y1=self.minimap_extents;cx,cy=(x0+x1)/2,(y0+y1)/2;w,h=(x1-x0),(y1-y0);self.minimap_extents=[max(STAGE_X_MIN,cx-w),min(STAGE_X_MAX,cx+w),max(STAGE_Y_MIN,cy-h),min(STAGE_Y_MAX,cy+h)];self.update_minimap_view()
@@ -206,8 +227,7 @@ class StageControlApp:
         try: p=self.get_scan_params(False);w=(p['steps_x']-1)*p['step_x'];h=(p['steps_y']-1)*p['step_y']; self.scan_area_patch=self.ax.add_patch(Rectangle((p['start_x'],p['start_y']),w,h,lw=1,ec='black',fc='black',alpha=0.5));self.canvas.draw()
         except: pass
     def auto_zoom_to_scan_area(self,params):
-        min_x=min(params['start_x'],params['end_x']);max_x=max(params['start_x'],params['end_x']);min_y=min(params['start_y'],params['end_y']);max_y=max(params['start_y'],params['end_y'])
-        width=max_x-min_x;height=max_y-min_y;margin_x=max(width*0.1,0.5);margin_y=max(height*0.1,0.5)
+        min_x=min(params['start_x'],params['end_x']);max_x=max(params['start_x'],params['end_x']);min_y=min(params['start_y'],params['end_y']);max_y=max(params['start_y'],params['end_y']); width=max_x-min_x;height=max_y-min_y;margin_x=max(width*0.1,0.5);margin_y=max(height*0.1,0.5)
         self.minimap_extents=[min_x-margin_x,max_x+margin_x,min_y-margin_y,max_y+margin_y];self.update_minimap_view()
     def start_scan(self):
         params=self.get_scan_params();dev_str=self.device_combobox.get()
