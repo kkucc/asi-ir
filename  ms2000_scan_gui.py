@@ -1,3 +1,4 @@
+# ms2000_cockpit_v21_set_center.py
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial
@@ -69,7 +70,6 @@ class MS2000Controller:
             if self.send_command("/", quiet=True) == 'N': return
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.05)
-            
     def get_position(self) -> Optional[tuple[float, float]]:
         response = self.send_command("W X Y")
         if response and response.startswith(":A"):
@@ -82,32 +82,24 @@ class MS2000Controller:
                 self.log("ERROR: Could not parse position.")
                 return None
         return None
-
     def move_absolute(self, x, y): self.send_command(f"M X={int(x*UNITS_MM_TO_DEVICE)} Y={int(y*UNITS_MM_TO_DEVICE)}")
-    
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
         self.log(f"INFO: --- Starting Scan with {device} ---")
-        
         try:
             travel_speed = 0.1 
             self.log(f"INFO: Setting travel speed to {travel_speed} mm/s")
             self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
-            
             self.log(f"INFO: Moving slowly to scan start point ({params['start_x']:.3f}, {params['start_y']:.3f})...")
             self.move_absolute(params['start_x'], params['start_y'])
             self.wait_for_idle()
-            self.send_command(f"B X={0} Y={0}")
             if self.stop_event.is_set(): raise InterruptedError
-
             steps_x, steps_y = int(params['steps_x']), int(params['steps_y'])
             x_coords = np.linspace(params['start_x'], params['end_x'], steps_x)
             y_coords = np.linspace(params['start_y'], params['end_y'], steps_y)
             results = np.full((steps_y, steps_x), np.nan)
-            
             self.log(f"INFO: Setting scan speed to {params['speed']} mm/s")
             self.send_command(f"S X={params['speed']} Y={params['speed']}")
-
             for i, y in enumerate(y_coords):
                 xs = x_coords if i % 2 == 0 else x_coords[::-1]
                 for j, x in enumerate(xs):
@@ -121,14 +113,11 @@ class MS2000Controller:
         except InterruptedError: self.log("INFO: --- Scan Stopped ---"); self.send_command(chr(92))
         except Exception as e: self.log(f"ERROR: --- Scan Failed: {e} ---"); self.send_command(chr(92))
         finally: self.is_running_scan = False
-            
     def stop_scan(self): self.log("INFO: Stop signal sent."); self.stop_event.set()
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root
-        self.root.title("MS-2000 Cockpit v20 (Pro Features)")
-        self.root.geometry("700x520")
+        self.root = root; self.root.title("MS-2000 Cockpit v21 (Set Center)"); self.root.geometry("700x520")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents = [STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
@@ -153,9 +142,11 @@ class StageControlApp:
         self.canvas.mpl_connect('button_press_event', self.on_pan_press); self.canvas.mpl_connect('motion_notify_event', self.on_pan_motion); self.canvas.mpl_connect('button_release_event', self.on_pan_release)
         param_frame=ttk.LabelFrame(bottom_left, text="Scan Parameters", padding=10); param_frame.pack(expand=True,fill=tk.BOTH); self.scan_entries={}
         
-        get_pos_button = ttk.Button(param_frame, text="Get Current", command=self.get_current_position_as_start)
-        get_pos_button.grid(row=0, column=0, columnspan=2, pady=(0, 5))
-        
+        btn_bar_frame = ttk.Frame(param_frame); btn_bar_frame.grid(row=0, column=0, columnspan=5, pady=(0, 5), sticky="ew")
+        get_pos_button = ttk.Button(btn_bar_frame, text="Get Current as Start", command=self.get_current_position_as_start); get_pos_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,5))
+        ### NEW ###
+        set_center_button = ttk.Button(btn_bar_frame, text="Set Current as Center", command=self.set_current_position_as_center); set_center_button.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         ttk.Label(param_frame, text="X-Axis", font='-weight bold').grid(row=1, column=0, columnspan=2, pady=5); ttk.Label(param_frame, text="Y-Axis", font='-weight bold').grid(row=1, column=3, columnspan=2, pady=5)
         for i,(k,(l,v)) in enumerate({"start_x":("Start","0.0"), "steps_x":("Points","50"), "step_x":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+2,column=0,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+2,column=1,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
         for i,(k,(l,v)) in enumerate({"start_y":("Start","0.0"), "steps_y":("Points","50"), "step_y":("Step","0.2")}.items()): ttk.Label(param_frame, text=l+":").grid(row=i+2,column=3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+2,column=4,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e
@@ -163,28 +154,42 @@ class StageControlApp:
         for i,(k,(l,v)) in enumerate({"speed":("Speed","2.0"),"dwell":("Dwell","0.01")}.items()): ttk.Label(param_frame,text=l+":").grid(row=6,column=i*3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=6,column=i*3+1,padx=5);self.scan_entries[k]=e
     
     def get_current_position_as_start(self):
-        if not self.controller.is_connected():
-            messagebox.showwarning("Warning", "Not connected to the stage.")
-            return
-        
-        self.controller.log("INFO: Querying current stage position...")
+        if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
         pos = self.controller.get_position()
         if pos:
             x, y = pos
-            self.controller.log(f"INFO: Position received: X={x:.4f}, Y={y:.4f}")
-            self.scan_entries['start_x'].delete(0, tk.END)
-            self.scan_entries['start_x'].insert(0, f"{x:.4f}")
-            self.scan_entries['start_y'].delete(0, tk.END)
-            self.scan_entries['start_y'].insert(0, f"{y:.4f}")
+            self.scan_entries['start_x'].delete(0, tk.END); self.scan_entries['start_x'].insert(0, f"{x:.4f}")
+            self.scan_entries['start_y'].delete(0, tk.END); self.scan_entries['start_y'].insert(0, f"{y:.4f}")
+            self.update_scan_area_preview()
+        else: messagebox.showerror("Error", "Failed to get position.")
+
+    ### NEW ###
+    def set_current_position_as_center(self):
+        if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
+        
+        params = self.get_scan_params(validate=False) # Получаем текущие параметры размера
+        if not params:
+             messagebox.showerror("Error", "Invalid scan size parameters (Points/Step).")
+             return
+
+        pos = self.controller.get_position()
+        if pos:
+            center_x, center_y = pos
+            
+            total_width = (params['steps_x'] - 1) * params['step_x']
+            total_height = (params['steps_y'] - 1) * params['step_y']
+            
+            new_start_x = center_x - total_width / 2.0
+            new_start_y = center_y - total_height / 2.0
+            
+            self.scan_entries['start_x'].delete(0, tk.END); self.scan_entries['start_x'].insert(0, f"{new_start_x:.4f}")
+            self.scan_entries['start_y'].delete(0, tk.END); self.scan_entries['start_y'].insert(0, f"{new_start_y:.4f}")
             self.update_scan_area_preview()
         else:
-            messagebox.showerror("Error", "Failed to get position from the stage.")
+            messagebox.showerror("Error", "Failed to get position.")
 
-    def setup_minimap(self):
-        self.ax.clear();self.ax.set_xticks([]);self.ax.set_yticks([]);self.ax.set_facecolor('#cccccc');self.ax.set_aspect('equal',adjustable='box')
-        self.scan_image=None;self.scan_area_patch=None
-        if self.progress_line:self.progress_line.remove();self.progress_line=None
-        self.update_minimap_view()
+    # ... (остальные методы без изменений)
+    def setup_minimap(self): self.ax.clear();self.ax.set_xticks([]);self.ax.set_yticks([]);self.ax.set_facecolor('#cccccc');self.ax.set_aspect('equal',adjustable='box'); self.scan_image=None;self.scan_area_patch=None; self.update_minimap_view()
     def update_minimap_view(self): self.ax.set_xlim(self.minimap_extents[0:2]);self.ax.set_ylim(self.minimap_extents[2:4]);self.canvas.draw()
     def zoom_in(self): x0,x1,y0,y1=self.minimap_extents;cx,cy=(x0+x1)/2,(y0+y1)/2;w,h=(x1-x0)/4,(y1-y0)/4;self.minimap_extents=[cx-w,cx+w,cy-h,cy+h];self.update_minimap_view()
     def zoom_out(self): x0,x1,y0,y1=self.minimap_extents;cx,cy=(x0+x1)/2,(y0+y1)/2;w,h=(x1-x0),(y1-y0);self.minimap_extents=[max(STAGE_X_MIN,cx-w),min(STAGE_X_MAX,cx+w),max(STAGE_Y_MIN,cy-h),min(STAGE_Y_MAX,cy+h)];self.update_minimap_view()
@@ -221,8 +226,7 @@ class StageControlApp:
         else:self.scan_image.set_data(data);self.scan_image.set_extent(extent)
         if not np.all(np.isnan(data)):self.scan_image.set_clim(np.nanmin(data),np.nanmax(data))
         if self.progress_line:self.progress_line.remove()
-        step_y=(p['end_y']-p['start_y'])/(p['steps_y']-1) if p['steps_y']>1 else 0
-        line_y_pos=p['start_y']+(row_index+0.5)*step_y
+        step_y=(p['end_y']-p['start_y'])/(p['steps_y']-1) if p['steps_y']>1 else 0; line_y_pos=p['start_y']+(row_index+0.5)*step_y
         if row_index<int(p['steps_y']-1):self.progress_line=self.ax.axhline(y=line_y_pos,color='yellow',lw=2,alpha=0.9)
         else:self.progress_line=None
         self.canvas.draw()
