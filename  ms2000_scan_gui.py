@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.cm as cm
 from matplotlib.patches import Rectangle
 
-# ... КОНСТАНТЫ и ЗАГЛУШКИ (без изменений) ...
+# КОНСТАНТЫ и ЗАГЛУШКИ 
 UNITS_MM_TO_DEVICE = 10000; STAGE_X_MIN, STAGE_X_MAX = -34.0, 39.0; STAGE_Y_MIN, STAGE_Y_MAX = -34.0, 39.0
 class AcquisitionDevice(abc.ABC):
     @abc.abstractmethod
@@ -28,12 +28,11 @@ class RandomNoiseDevice(AcquisitionDevice):
     def acquire(self, dwell_time: float, x: float, y: float) -> float:
         time.sleep(dwell_time); return np.random.rand() * 100
 
-# --- КЛАСС УПРАВЛЕНИЯ СТОЛИКОМ (ИЗМЕНЕН) ---
+# КЛАСС УПРАВЛЕНИЯ СТОЛИКОМ 
 class MS2000Controller:
     def __init__(self, log_callback: Callable[[str], None]):
         self.ser: Optional[serial.Serial] = None; self.is_running_scan = False
         self.stop_event = threading.Event(); self.log = log_callback; self.lock = threading.Lock()
-        ### NEW ###
         self.invert_x = tk.BooleanVar(value=True)  # Инвертируем X (который станет Y для столика)
         self.invert_y = tk.BooleanVar(value=False)
         self.swap_xy = tk.BooleanVar(value=True)   # Меняем оси местами
@@ -67,7 +66,6 @@ class MS2000Controller:
             try: self.ser.write(bytes([255, 72])); time.sleep(0.1)
             except: pass
     def send_command(self, cmd, quiet=False):
-        # ... (без изменений)
         if not self.is_connected(): return None
         with self.lock:
             try:
@@ -86,7 +84,6 @@ class MS2000Controller:
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.05)
             
-    ### MODIFIED ###
     def get_position(self) -> Optional[tuple[float, float]]:
         response = self.send_command("W X Y")
         if response and response.startswith(":A"):
@@ -98,23 +95,22 @@ class MS2000Controller:
             except: self.log("ERROR: Could not parse position."); return None
         return None
 
-    ### MODIFIED ###
     def move_absolute(self, x_gui, y_gui):
         x_stage, y_stage = self._transform_coords_to_stage(x_gui, y_gui)
         self.send_command(f"M X={int(x_stage*UNITS_MM_TO_DEVICE)} Y={int(y_stage*UNITS_MM_TO_DEVICE)}")
     
-    ### MODIFIED ###
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
+        self.send_command(f"B X={0} Y={0}")
         self.log(f"INFO: --- Starting Scan with {device} ---")
         try:
-            # ... (логика сканирования не меняется, так как она работает с GUI координатами)
             travel_speed = 0.1 
             self.log(f"INFO: Setting travel speed to {travel_speed} mm/s")
             self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
             self.log(f"INFO: Moving slowly to scan start point ({params['start_x']:.3f}, {params['start_y']:.3f})...")
             self.move_absolute(params['start_x'], params['start_y'])
             self.wait_for_idle()
+            self.send_command(f"B X={0} Y={0}")
             if self.stop_event.is_set(): raise InterruptedError
             steps_x, steps_y = int(params['steps_x']), int(params['steps_y'])
             x_coords = np.linspace(params['start_x'], params['end_x'], steps_x)
@@ -140,7 +136,6 @@ class MS2000Controller:
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        # ... (init без изменений)
         self.root = root; self.root.title("MS-2000 Cockpit v22 (Axis Inversion)"); self.root.geometry("700x520")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
@@ -151,13 +146,12 @@ class StageControlApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def _create_widgets(self):
-        # ... (основная компоновка без изменений)
         main_frame = ttk.Frame(self.root, padding=10); main_frame.pack(fill=tk.BOTH, expand=True); main_frame.columnconfigure(0, weight=1); main_frame.columnconfigure(1, weight=0); main_frame.rowconfigure(1, weight=1)
         top_left=ttk.Frame(main_frame); top_right=ttk.Frame(main_frame, width=280, height=280); bottom_left=ttk.Frame(main_frame)
         top_left.grid(row=0, column=0, sticky="nsew", padx=(0, 10)); top_right.grid(row=0, column=1, rowspan=2, sticky="ne"); bottom_left.grid(row=1, column=0, sticky="nsew", pady=(10, 0)); top_right.grid_propagate(False)
         conn_frame=ttk.LabelFrame(top_left, text="Connection", padding=10); conn_frame.pack(fill=tk.X); scan_ctrl_frame=ttk.LabelFrame(top_left, text="Scan Control", padding=10); scan_ctrl_frame.pack(fill=tk.X, pady=(10,0))
 
-        # --- ИЗМЕНЕНО: Добавляем чекбоксы в Connection ---
+        # чекбоксы в Connection 
         self.conn_entries={}; 
         ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, sticky="w"); e=ttk.Entry(conn_frame, width=8); e.insert(0, "COM4"); e.grid(row=0, column=1); self.conn_entries['port']=e
         ttk.Label(conn_frame, text="Baud:").grid(row=1, column=0, sticky="w"); e=ttk.Entry(conn_frame, width=8); e.insert(0, "9600"); e.grid(row=1, column=1); self.conn_entries['baudrate']=e
@@ -171,7 +165,6 @@ class StageControlApp:
         self.connect_button=ttk.Button(btn_frame,text="Connect",command=self.connect); self.connect_button.pack(fill=tk.X); 
         self.disconnect_button=ttk.Button(btn_frame,text="Disconnect",command=self.disconnect,state=tk.DISABLED); self.disconnect_button.pack(fill=tk.X, pady=2)
         
-        # ... (остальной код виджетов без изменений)
         ttk.Label(scan_ctrl_frame, text="Device:").pack(fill=tk.X); self.device_combobox=ttk.Combobox(scan_ctrl_frame,values=[str(d) for d in self.available_devices],state="readonly"); self.device_combobox.current(0); self.device_combobox.pack(fill=tk.X,pady=(0,5))
         self.start_scan_button=ttk.Button(scan_ctrl_frame,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,5)); self.stop_scan_button=ttk.Button(scan_ctrl_frame,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X)
         self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0,right=1,top=1,bottom=0)
@@ -187,7 +180,6 @@ class StageControlApp:
         for i,(k,(l,v)) in enumerate({"speed":("Speed","2.0"),"dwell":("Dwell","0.01")}.items()): ttk.Label(param_frame,text=l+":").grid(row=6,column=i*3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=6,column=i*3+1,padx=5);self.scan_entries[k]=e
     
     def get_current_position_as_start(self):
-        # ... (без изменений)
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
         pos = self.controller.get_position()
         if pos:
@@ -197,7 +189,6 @@ class StageControlApp:
             self.update_scan_area_preview()
         else: messagebox.showerror("Error", "Failed to get position.")
     def set_current_position_as_center(self):
-        # ... (без изменений)
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
         params = self.get_scan_params(validate=False)
         if not params: messagebox.showerror("Error", "Invalid scan size parameters."); return
@@ -209,7 +200,6 @@ class StageControlApp:
             self.scan_entries['start_y'].delete(0,tk.END); self.scan_entries['start_y'].insert(0,f"{new_start_y:.4f}")
             self.update_scan_area_preview()
         else: messagebox.showerror("Error", "Failed to get position.")
-    # ... (остальные методы без изменений)
     def setup_minimap(self):self.ax.clear();self.ax.set_xticks([]);self.ax.set_yticks([]);self.ax.set_facecolor('#cccccc');self.ax.set_aspect('equal',adjustable='box');self.scan_image=None;self.scan_area_patch=None;self.update_minimap_view()
     def update_minimap_view(self): self.ax.set_xlim(self.minimap_extents[0:2]);self.ax.set_ylim(self.minimap_extents[2:4]);self.canvas.draw()
     def zoom_in(self): x0,x1,y0,y1=self.minimap_extents;cx,cy=(x0+x1)/2,(y0+y1)/2;w,h=(x1-x0)/4,(y1-y0)/4;self.minimap_extents=[cx-w,cx+w,cy-h,cy+h];self.update_minimap_view()
