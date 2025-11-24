@@ -117,6 +117,7 @@ class MS2000Controller:
             y_coords = np.linspace(params['start_y'], params['end_y'], steps_y)
             results = np.full((steps_y, steps_x), np.nan)
             self.log(f"INFO: Setting scan speed to {params['speed']} mm/s")
+            # self.send_command(f"B X={0} Y={0}")
             self.send_command(f"S X={params['speed']} Y={params['speed']}")
             for i, y in enumerate(y_coords):
                 xs = x_coords if i % 2 == 0 else x_coords[::-1]
