@@ -116,13 +116,14 @@ class MS2000Controller:
                 if i > 0:
                     self.log(f"INFO: Performing backlash compensation for line {i+1}")
                     self.send_command(f"S Y={travel_speed}", quiet=True)
-                    self.move_absolute(x_coords[0], y - backlash_y); self.wait_for_idle()
+                    #self.move_absolute(x_coords[0], y - backlash_y); self.wait_for_idle()
                     self.move_absolute(x_coords[0], y); self.wait_for_idle()
+                    self.move_absolute(x_coords[0] + backlash_y, y); self.wait_for_idle()
                     self.send_command(f"S Y={scan_speed}", quiet=True)
                 
                 for j, x in enumerate(x_coords):
                     if self.stop_event.is_set(): raise InterruptedError
-                    if j > 0: self.move_absolute(x, y); self.wait_for_idle()
+                    if j > 0: self.move_absolute(x + backlash_y, y); self.wait_for_idle()
                     self.send_command("TTL Y=1", quiet=True); self.send_command("TTL Y=0", quiet=True)
                     value = device.acquire(params['dwell'], x, y)
                     results[i, j] = value
