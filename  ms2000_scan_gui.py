@@ -1,4 +1,4 @@
-# ms2000_cockpit_v24_merged.py
+# ms2000_cockpit_v24_unified_step.py
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial
@@ -91,6 +91,13 @@ class MS2000Controller:
         x_stage, y_stage = self._transform_coords_to_stage(x_gui, y_gui)
         self.send_command(f"M X={int(x_stage*UNITS_MM_TO_DEVICE)} Y={int(y_stage*UNITS_MM_TO_DEVICE)}")
     
+    def move_relative(self, dx_gui, dy_gui):
+        dx_stage, dy_stage = dx_gui, dy_gui
+        if self.swap_xy.get(): dx_stage, dy_stage = dy_gui, dx_gui
+        if self.invert_x.get(): dx_stage *= -1
+        if self.invert_y.get(): dy_stage *= -1
+        self.send_command(f"R X={int(dx_stage*UNITS_MM_TO_DEVICE)} Y={int(dy_stage*UNITS_MM_TO_DEVICE)}")
+
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
         self.log(f"INFO: --- Starting Raster Scan with Backlash Comp. ---")
@@ -116,14 +123,16 @@ class MS2000Controller:
                 if i > 0:
                     self.log(f"INFO: Performing backlash compensation for line {i+1}")
                     self.send_command(f"S Y={travel_speed}", quiet=True)
-                    #self.move_absolute(x_coords[0], y - backlash_y); self.wait_for_idle()
+                    self.move_absolute(x_coords[0], y - backlash_y); self.wait_for_idle()
                     self.move_absolute(x_coords[0], y); self.wait_for_idle()
-                    self.move_absolute(x_coords[0] + backlash_y, y); self.wait_for_idle()
                     self.send_command(f"S Y={scan_speed}", quiet=True)
                 
                 for j, x in enumerate(x_coords):
                     if self.stop_event.is_set(): raise InterruptedError
-                    if j > 0: self.move_absolute(x + backlash_y, y); self.wait_for_idle()
+                    if j > 0:
+                        self.move_absolute(x + backlash_y, y); self.wait_for_idle()
+                        self.move_absolute(x, y); self.wait_for_idle()
+
                     self.send_command("TTL Y=1", quiet=True); self.send_command("TTL Y=0", quiet=True)
                     value = device.acquire(params['dwell'], x, y)
                     results[i, j] = value
@@ -139,7 +148,7 @@ class MS2000Controller:
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v24 (Merged)"); self.root.geometry("700x550")
+        self.root = root; self.root.title("MS-2000 Cockpit v27 (Unified Step)"); self.root.geometry("750x550")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents = [STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
@@ -149,41 +158,53 @@ class StageControlApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def _create_widgets(self):
-        main_frame = ttk.Frame(self.root, padding=10); main_frame.pack(fill=tk.BOTH, expand=True); main_frame.columnconfigure(0, weight=1); main_frame.columnconfigure(1, weight=0); main_frame.rowconfigure(1, weight=1)
-        top_left=ttk.Frame(main_frame); top_right=ttk.Frame(main_frame, width=280, height=280); bottom_left=ttk.Frame(main_frame)
-        top_left.grid(row=0, column=0, sticky="nsew", padx=(0, 10)); top_right.grid(row=0, column=1, rowspan=2, sticky="ne"); bottom_left.grid(row=1, column=0, sticky="nsew", pady=(10, 0)); top_right.grid_propagate(False)
-        conn_frame=ttk.LabelFrame(top_left, text="Connection", padding=10); conn_frame.pack(fill=tk.X); scan_ctrl_frame=ttk.LabelFrame(top_left, text="Scan Control", padding=10); scan_ctrl_frame.pack(fill=tk.X, pady=(10,0))
+        main_frame = ttk.Frame(self.root, padding=10); main_frame.pack(fill=tk.BOTH, expand=True); main_frame.columnconfigure(0, weight=1); main_frame.columnconfigure(1, weight=0); main_frame.rowconfigure(2, weight=1)
+        top_left=ttk.Frame(main_frame); top_right=ttk.Frame(main_frame, width=280)
+        bottom_left=ttk.Frame(main_frame)
+        top_left.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 10)); top_right.grid(row=0, column=1, rowspan=3, sticky="ns"); bottom_left.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
         
-        self.conn_entries={}; 
-        ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, sticky="w"); e=ttk.Entry(conn_frame, width=8); e.insert(0, "COM4"); e.grid(row=0, column=1); self.conn_entries['port']=e
+        conn_frame=ttk.LabelFrame(top_left, text="Connection", padding=10); conn_frame.pack(fill=tk.X)
+        scan_ctrl_frame=ttk.LabelFrame(top_left, text="Scan Control", padding=10); scan_ctrl_frame.pack(fill=tk.X, pady=(10,0))
+        self.conn_entries={}; ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, sticky="w"); e=ttk.Entry(conn_frame, width=8); e.insert(0, "COM4"); e.grid(row=0, column=1); self.conn_entries['port']=e
         ttk.Label(conn_frame, text="Baud:").grid(row=1, column=0, sticky="w"); e=ttk.Entry(conn_frame, width=8); e.insert(0, "9600"); e.grid(row=1, column=1); self.conn_entries['baudrate']=e
         check_frame = ttk.Frame(conn_frame); check_frame.grid(row=0, column=2, rowspan=2, padx=10); ttk.Checkbutton(check_frame, text="Swap XY", variable=self.controller.swap_xy).pack(anchor='w'); ttk.Checkbutton(check_frame, text="Invert X", variable=self.controller.invert_x).pack(anchor='w'); ttk.Checkbutton(check_frame, text="Invert Y", variable=self.controller.invert_y).pack(anchor='w')
         btn_frame=ttk.Frame(conn_frame); btn_frame.grid(row=0,column=3,rowspan=2,padx=5); self.connect_button=ttk.Button(btn_frame,text="Connect",command=self.connect); self.connect_button.pack(fill=tk.X); self.disconnect_button=ttk.Button(btn_frame,text="Disconnect",command=self.disconnect,state=tk.DISABLED); self.disconnect_button.pack(fill=tk.X, pady=2)
-        
         ttk.Label(scan_ctrl_frame, text="Device:").pack(fill=tk.X); self.device_combobox=ttk.Combobox(scan_ctrl_frame,values=[str(d) for d in self.available_devices],state="readonly"); self.device_combobox.current(0); self.device_combobox.pack(fill=tk.X,pady=(0,5))
         self.start_scan_button=ttk.Button(scan_ctrl_frame,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,5)); self.stop_scan_button=ttk.Button(scan_ctrl_frame,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X)
+        
         self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0,right=1,top=1,bottom=0)
-        self.canvas=FigureCanvasTkAgg(self.fig, master=top_right); self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True); self.setup_minimap()
-        map_controls=ttk.Frame(top_right); map_controls.pack(fill=tk.X, pady=5); ttk.Label(map_controls, text="Map View:").pack(side=tk.LEFT); ttk.Button(map_controls, text="+", width=3, command=self.zoom_in).pack(side=tk.LEFT); ttk.Button(map_controls, text="-", width=3, command=self.zoom_out).pack(side=tk.LEFT); ttk.Button(map_controls, text="Reset", command=self.reset_zoom).pack(side=tk.LEFT)
+        self.canvas=FigureCanvasTkAgg(self.fig, master=top_right); self.canvas.get_tk_widget().pack(fill=tk.X, anchor='n'); self.setup_minimap()
+        map_controls=ttk.Frame(top_right); map_controls.pack(fill=tk.X, pady=5, anchor='n'); ttk.Label(map_controls, text="Map View:").pack(side=tk.LEFT); ttk.Button(map_controls, text="+", width=3, command=self.zoom_in).pack(side=tk.LEFT); ttk.Button(map_controls, text="-", width=3, command=self.zoom_out).pack(side=tk.LEFT); ttk.Button(map_controls, text="Reset", command=self.reset_zoom).pack(side=tk.LEFT)
         self.canvas.mpl_connect('button_press_event', self.on_pan_press); self.canvas.mpl_connect('motion_notify_event', self.on_pan_motion); self.canvas.mpl_connect('button_release_event', self.on_pan_release)
         
+        manual_frame = ttk.LabelFrame(top_right, text="Manual Control", padding=10); manual_frame.pack(fill=tk.X, pady=(10,0), anchor='n')
+        jog_frame = ttk.Frame(manual_frame); jog_frame.pack()
+        ttk.Button(jog_frame, text="↑", command=lambda: self._manual_move(0, 1)).grid(row=0, column=1)
+        ttk.Button(jog_frame, text="←", command=lambda: self._manual_move(-1, 0)).grid(row=1, column=0)
+        ttk.Button(jog_frame, text="→", command=lambda: self._manual_move(1, 0)).grid(row=1, column=2)
+        ttk.Button(jog_frame, text="↓", command=lambda: self._manual_move(0, -1)).grid(row=2, column=1)
+
         param_frame=ttk.LabelFrame(bottom_left, text="Scan Parameters", padding=10); param_frame.pack(expand=True,fill=tk.BOTH); self.scan_entries={}
         btn_bar_frame = ttk.Frame(param_frame); btn_bar_frame.grid(row=0, column=0, columnspan=6, pady=(0, 5), sticky="ew"); get_pos_button = ttk.Button(btn_bar_frame, text="Get Current as Start", command=self.get_current_position_as_start); get_pos_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,5)); set_center_button = ttk.Button(btn_bar_frame, text="Set Current as Center", command=self.set_current_position_as_center); set_center_button.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Label(param_frame, text="X-Axis", font='-weight bold').grid(row=1, column=0, columnspan=3, pady=5); ttk.Label(param_frame, text="Y-Axis", font='-weight bold').grid(row=1, column=3, columnspan=3, pady=5)
-        
-        scan_fields_x = {"start_x":("Start", "0.0", "mm"), "steps_x":("Points","50", ""), "step_x":("Step","0.2", "mm")}
+        scan_fields_x = {"start_x":("Start", "0.0", "mm"), "steps_x":("Points","50", ""), "step_x":("Step","0.2", "mm")}; scan_fields_y = {"start_y":("Start","0.0", "mm"), "steps_y":("Points","50", ""), "step_y":("Step","0.2", "mm"), "backlash_y":("Backlash", "0.01", "mm")}
         for i,(k,(l,v,u)) in enumerate(scan_fields_x.items()): ttk.Label(param_frame, text=l+":").grid(row=i+2,column=0,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+2,column=1,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e; ttk.Label(param_frame, text=u).grid(row=i+2, column=2, sticky='w')
-        
-        scan_fields_y = {"start_y":("Start","0.0", "mm"), "steps_y":("Points","50", ""), "step_y":("Step","0.2", "mm"), "backlash_y":("Backlash", "0.01", "mm")}
         for i,(k,(l,v,u)) in enumerate(scan_fields_y.items()): ttk.Label(param_frame, text=l+":").grid(row=i+2,column=3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=i+2,column=4,padx=5);e.bind("<KeyRelease>", self.update_scan_area_preview);self.scan_entries[k]=e; ttk.Label(param_frame, text=u).grid(row=i+2, column=5, sticky='w')
-
-        param_frame.columnconfigure(2,minsize=15); param_frame.columnconfigure(5,minsize=15)
-        ttk.Separator(param_frame,orient='horizontal').grid(row=6,column=0,columnspan=6,sticky='ew',pady=10)
-        
+        param_frame.columnconfigure(2,minsize=15); param_frame.columnconfigure(5,minsize=15); ttk.Separator(param_frame,orient='horizontal').grid(row=6,column=0,columnspan=6,sticky='ew',pady=10)
         scan_fields_general = {"speed":("Speed","2.0", "mm/s"),"dwell":("Dwell","0.01", "s")}
         for i,(k,(l,v,u)) in enumerate(scan_fields_general.items()): ttk.Label(param_frame,text=l+":").grid(row=7,column=i*3,sticky="w");e=ttk.Entry(param_frame,width=8);e.insert(0,v);e.grid(row=7,column=i*3+1,padx=5);self.scan_entries[k]=e; ttk.Label(param_frame, text=u).grid(row=7, column=i*3+2, sticky='w')
     
-    # ... (все остальные методы ГУИ без изменений)
+    def _manual_move(self, dx_factor, dy_factor):
+        if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
+        try:
+            step_x = float(self.scan_entries['step_x'].get())
+            step_y = float(self.scan_entries['step_y'].get())
+            dx = step_x * dx_factor
+            dy = step_y * dy_factor
+            threading.Thread(target=self.controller.move_relative, args=(dx, dy), daemon=True).start()
+        except (ValueError, KeyError):
+            messagebox.showerror("Error", "Invalid step value in Scan Parameters.")
+
     def get_current_position_as_start(self):
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
         pos = self.controller.get_position()
