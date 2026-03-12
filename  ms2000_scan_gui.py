@@ -49,7 +49,7 @@ class MS2000Controller:
     def is_connected(self) -> bool: return self.ser is not None and self.ser.is_open
     def connect(self, port, baud):
         try:
-            self.ser = serial.Serial(port, baud, timeout=1.0); time.sleep(0.2); self._set_high_precision()
+            self.ser = serial.Serial(port, baud, timeout=1.0); time.sleep(0.05); self._set_high_precision()
             self.log(f"INFO: Connected to MS-2000 on {port}."); return True
         except serial.SerialException as e: self.log(f"ERROR: {e}"); self.ser=None; return False
     def disconnect(self):
@@ -58,7 +58,7 @@ class MS2000Controller:
         self.ser = None
     def _set_high_precision(self):
         if self.is_connected():
-            try: self.ser.write(bytes([255, 72])); time.sleep(0.1)
+            try: self.ser.write(bytes([255, 72])); time.sleep(0.05)
             except: pass
     def send_command(self, cmd, quiet=False):
         if not self.is_connected(): return None
@@ -133,7 +133,7 @@ class MS2000Controller:
                         self.move_absolute(x + backlash_y, y); self.wait_for_idle()
                         self.move_absolute(x, y); self.wait_for_idle()
 
-                    self.send_command("TTL Y=1", quiet=True); self.send_command("TTL Y=0", quiet=True)
+                    self.send_command("TTL Y=2", quiet=True)#; self.send_command("TTL Y=0", quiet=True)
                     value = device.acquire(params['dwell'], x, y)
                     results[i, j] = value
                 
