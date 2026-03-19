@@ -96,7 +96,7 @@ class MS2000Controller:
                         self.move_absolute(x + backlash_y, y); self.wait_for_idle()
                         self.move_absolute(x, y); self.wait_for_idle()
 
-                    self.send_command("TTL Y=1", quiet=True); self.send_command("TTL Y=0", quiet=True)
+                    self.send_command("TTL Y=2", quiet=True)#; self.send_command("TTL Y=0", quiet=True)
                     value = device.acquire(params['dwell'], x, y)
                     results[i, j if i%2==0 else (steps_x-1-j)] = value
                 if line_callback: line_callback(results.copy(), i)
