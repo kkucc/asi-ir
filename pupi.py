@@ -12,7 +12,6 @@ NUM_MOVES = 1000
 ser: Optional[serial.Serial] = None
 
 def send_command(cmd: str, quiet: bool = False) -> str:
-    """Отправляет команду и возвращает ответ."""
     global ser
     # if not quiet: print(f"  CMD > {cmd}")
     # ser.reset_input_buffer(); ser.reset_output_buffer()
