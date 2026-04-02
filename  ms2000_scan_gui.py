@@ -26,7 +26,6 @@ class AcquisitionDevice(abc.ABC):
 
 class SmartDummySignal(AcquisitionDevice):
     def acquire(self, dwell_time: float, x: float, y: float) -> float:
-        # Честно ждем заданное время Dwell
         time.sleep(dwell_time)
         center_x, center_y, radius = 10000.0, 10000.0, 5000.0
         distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
@@ -319,10 +318,10 @@ class StageControlApp:
         jog_frame = ttk.Frame(manual_frame)
         jog_frame.pack()
         
-        ttk.Button(jog_frame, text="↑", command=lambda: self._manual_move(0, 1)).grid(row=0, column=1)
+        ttk.Button(jog_frame, text="↑", command=lambda: self._manual_move(0, -1)).grid(row=0, column=1)
         ttk.Button(jog_frame, text="←", command=lambda: self._manual_move(-1, 0)).grid(row=1, column=0)
         ttk.Button(jog_frame, text="→", command=lambda: self._manual_move(1, 0)).grid(row=1, column=2)
-        ttk.Button(jog_frame, text="↓", command=lambda: self._manual_move(0, -1)).grid(row=2, column=1)
+        ttk.Button(jog_frame, text="↓", command=lambda: self._manual_move(0, 1)).grid(row=2, column=1)
 
         param_frame = ttk.LabelFrame(bottom_left, text="Scan Parameters", padding=10)
         param_frame.pack(expand=True, fill=tk.BOTH)
