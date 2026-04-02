@@ -299,3 +299,11 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
     root.mainloop()
+    # добавить возвращение в центр после скана
+    # Разобраться с беклешем (может подобрать точное значение)
+    # Добавить вычитание бэклеша по второй координате
+    # Гет/сет в старт скан
+    # Пресеты points 20, step 1, backlash 1, dwell 1, invert X no, invert Y yes
+    # Основные параметры оставить в scan param: points, step, dwell (переименовать в acc. time)
+    # параметр backlash и speed отделить, они не так важны
+    # Параметры Start XY убрать, добавить окна current pos и сделть их внизу окна слева 
