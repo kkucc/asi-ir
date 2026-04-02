@@ -1,4 +1,4 @@
-# ms2000_cockpit_v2.1_single_column.py
+# ms2000_cockpit_v24_unified_step.py
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial
@@ -172,7 +172,7 @@ class MS2000Controller:
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit"); self.root.geometry("750x550")
+        self.root = root; self.root.title("MS-2000 Cockpit v27 (Unified Step)"); self.root.geometry("750x550")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents =[STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
@@ -246,20 +246,18 @@ class StageControlApp:
         param_frame.columnconfigure(2,minsize=15); param_frame.columnconfigure(5,minsize=15)
         ttk.Separator(param_frame,orient='horizontal').grid(row=4,column=0,columnspan=6,sticky='ew',pady=10)
         
-        other_params = {
-            "acc_time":("Acc. Time","1.0", "s"),
+        general_fields = {
+            "acc_time":("Dwell","1.0", "s"), 
             "speed":("Speed","2000.0", "um/s"), 
             "backlash":("Backlash", "1.0", "um")
         }
-        
-        start_row = 5
-        for i, (k, (l, v, u)) in enumerate(other_params.items()):
-            current_row = start_row + i
-            ttk.Label(param_frame, text=l+":").grid(row=current_row, column=0, sticky="w")
-            e=ttk.Entry(param_frame, width=8); e.insert(0,v); e.grid(row=current_row, column=1, padx=5)
-            self.scan_entries[k]=e
-            ttk.Label(param_frame, text=u).grid(row=current_row, column=2, sticky='w')
-    
+        start_row = 5                   
+        for i, (k, (l, v, u)) in enumerate(general_fields.items()):
+            ttk.Label(param_frame, text=l+":").grid(row=start_row + i, column=0, sticky="w", pady=2)
+            e=ttk.Entry(param_frame, width=8); e.insert(0,v); e.grid(row=start_row + i, column=1, padx=5, pady=2)
+            self.scan_entries[k]=e; 
+            ttk.Label(param_frame, text=u).grid(row=start_row + i, column=2, sticky="w", pady=2)
+
     def _manual_move(self, dx_factor, dy_factor):
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
         try:
