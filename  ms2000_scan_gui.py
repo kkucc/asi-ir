@@ -14,9 +14,9 @@ import matplotlib.cm as cm
 from matplotlib.patches import Rectangle
 
 # --- КОНСТАНТЫ ---
-UNITS_MM_TO_DEVICE = 10000
-STAGE_X_MIN, STAGE_X_MAX = -34.0, 39.0
-STAGE_Y_MIN, STAGE_Y_MAX = -34.0, 39.0
+UNITS_UM_TO_DEVICE = 10
+STAGE_X_MIN, STAGE_X_MAX = -34000.0, 39000.0
+STAGE_Y_MIN, STAGE_Y_MAX = -34000.0, 39000.0
 
 # --- АРХИТЕКТУРА ЗАГЛУШЕК ---
 class AcquisitionDevice(abc.ABC):
@@ -28,7 +28,7 @@ class SmartDummySignal(AcquisitionDevice):
     def acquire(self, dwell_time: float, x: float, y: float) -> float:
         # Честно ждем заданное время Dwell
         time.sleep(dwell_time)
-        center_x, center_y, radius = 10.0, 10.0, 5.0
+        center_x, center_y, radius = 10000.0, 10000.0, 5000.0
         distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
         if distance < radius: return 90 + np.random.rand() * 10
         else: return 10 + np.random.rand() * 10
@@ -92,23 +92,19 @@ class MS2000Controller:
                 time.sleep(0.05)
             except: pass
 
-    # ОПТИМИЗИРОВАННАЯ отправка команд (как в pupi.py)
     def send_command(self, cmd, read_response=True):
         if not self.is_connected(): return None
         with self.lock:
             try:
-                # self.log(f"CMD > {cmd}") # Раскомментировать для дебага
                 self.ser.write(f"{cmd}\r".encode('ascii'))
                 if read_response:
                     response = self.ser.read_until(b'\r\n').decode('ascii').strip()
-                    # self.log(f"RSP < {response}") # Раскомментировать для дебага
                     return response
                 return None
             except Exception as e: 
                 self.log(f"ERROR sending '{cmd}': {e}")
                 return None
 
-    # ОЧЕНЬ БЫСТРОЕ ожидание завершения (не спамит порт)
     def wait_for_idle(self):
         timeout = 15.0 
         start_time = time.time()
@@ -121,7 +117,6 @@ class MS2000Controller:
                 status = self.ser.read(1).decode('ascii')
             if status == 'N': 
                 return
-            # Крошечная пауза, чтобы не повесить процессор, но достаточно быстрая
             time.sleep(0.01) 
 
     def get_position(self) -> Optional[tuple[float, float]]:
@@ -129,8 +124,8 @@ class MS2000Controller:
         if response and response.startswith(":A"):
             try:
                 parts = response.split()
-                x_stage = float(parts[1]) / UNITS_MM_TO_DEVICE
-                y_stage = float(parts[2]) / UNITS_MM_TO_DEVICE
+                x_stage = float(parts[1]) / UNITS_UM_TO_DEVICE
+                y_stage = float(parts[2]) / UNITS_UM_TO_DEVICE
                 return self._transform_coords_from_stage(x_stage, y_stage)
             except: 
                 self.log("ERROR: Could not parse position.")
@@ -139,23 +134,30 @@ class MS2000Controller:
 
     def move_absolute(self, x_gui, y_gui):
         x_stage, y_stage = self._transform_coords_to_stage(x_gui, y_gui)
-        self.send_command(f"M X={int(x_stage * UNITS_MM_TO_DEVICE)} Y={int(y_stage * UNITS_MM_TO_DEVICE)}")
+        self.send_command(f"M X={int(x_stage * UNITS_UM_TO_DEVICE)} Y={int(y_stage * UNITS_UM_TO_DEVICE)}")
     
     def move_relative(self, dx_gui, dy_gui):
         dx_stage, dy_stage = dx_gui, dy_gui
         if self.swap_xy.get(): dx_stage, dy_stage = dy_gui, dx_gui
         if self.invert_x.get(): dx_stage *= -1
         if self.invert_y.get(): dy_stage *= -1
-        self.send_command(f"R X={int(dx_stage * UNITS_MM_TO_DEVICE)} Y={int(dy_stage * UNITS_MM_TO_DEVICE)}")
+        
+        cmd = "R"
+        if int(dx_stage * UNITS_UM_TO_DEVICE) != 0:
+            cmd += f" X={int(dx_stage * UNITS_UM_TO_DEVICE)}"
+        if int(dy_stage * UNITS_UM_TO_DEVICE) != 0:
+            cmd += f" Y={int(dy_stage * UNITS_UM_TO_DEVICE)}"
+            
+        if cmd != "R":
+            self.send_command(cmd)
 
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True
         self.stop_event.clear()
         self.log(f"INFO: --- Starting Raster Scan ---")
         try:
-            # Настраиваем контроллер
-            travel_speed = 0.5 # Транспортная скорость (быстрее, чем скан)
-            scan_speed = params['speed']
+            travel_speed = 0.5
+            scan_speed = params['speed'] / 1000.0
             backlash_y = params['backlash_y']
             
             steps_x, steps_y = int(params['steps_x']), int(params['steps_y'])
@@ -163,8 +165,7 @@ class MS2000Controller:
             y_coords = np.linspace(params['start_y'], params['end_y'], steps_y)
             results = np.full((steps_y, steps_x), np.nan)
             
-            # 1. Подготовка: едем к стартовой точке
-            self.send_command("TTL Y=0") # Переводим TTL в ручной режим
+            self.send_command("TTL Y=0")
             self.send_command(f"S X={travel_speed} Y={travel_speed}")
             self.log(f"INFO: Moving to start position...")
             self.move_absolute(x_coords[0], y_coords[0] - backlash_y)
@@ -172,34 +173,27 @@ class MS2000Controller:
             self.move_absolute(x_coords[0], y_coords[0])
             self.wait_for_idle()
             
-            # Устанавливаем рабочую скорость
             self.send_command(f"S X={scan_speed} Y={scan_speed}")
 
-            # 2. Главный цикл сканирования (ОПТИМИЗИРОВАННАЯ ЛОГИКА)
             for i, y in enumerate(y_coords):
                 if i > 0:
-                    # Переход на новую строку с люфт-компенсацией
                     self.send_command(f"S Y={travel_speed}", read_response=False)
                     self.move_absolute(x_coords[0], y - backlash_y); self.wait_for_idle()
                     self.move_absolute(x_coords[0], y); self.wait_for_idle()
                     self.send_command(f"S Y={scan_speed}", read_response=False)
                 
-                # Змейка
                 xs = x_coords if i % 2 == 0 else x_coords[::-1]
                 
                 for j, x in enumerate(xs):
                     if self.stop_event.is_set(): raise InterruptedError
                     
                     if j > 0:
-                        # Двигаемся к следующей точке по X
                         self.move_absolute(x + backlash_y, y); self.wait_for_idle()
                         self.move_absolute(x, y); self.wait_for_idle()
 
-                    # === БЫСТРАЯ ОТПРАВКА TTL (КАК В pupi.py) ===
                     self.send_command("TTL Y=1", read_response=False)
                     self.send_command("TTL Y=0", read_response=False)
                     
-                    # Сбор данных (здесь же происходит time.sleep(dwell))
                     value = device.acquire(params['dwell'], x, y)
                     
                     col_idx = j if i % 2 == 0 else (steps_x - 1 - j)
@@ -211,7 +205,7 @@ class MS2000Controller:
             self.log("INFO: --- Scan Completed ---")
         except InterruptedError: 
             self.log("INFO: --- Scan Stopped ---")
-            self.send_command(chr(92)) # HALT
+            self.send_command(chr(92))
         except Exception as e: 
             self.log(f"ERROR: --- Scan Failed: {e} ---")
             self.send_command(chr(92))
@@ -259,7 +253,6 @@ class StageControlApp:
         top_right.grid(row=0, column=1, rowspan=3, sticky="ns")
         bottom_left.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
         
-        # --- Connection Frame ---
         conn_frame = ttk.LabelFrame(top_left, text="Connection", padding=10)
         conn_frame.pack(fill=tk.X)
         self.conn_entries = {}
@@ -289,7 +282,6 @@ class StageControlApp:
         self.disconnect_button = ttk.Button(btn_frame, text="Disconnect", command=self.disconnect, state=tk.DISABLED)
         self.disconnect_button.pack(fill=tk.X, pady=2)
         
-        # --- Scan Control Frame ---
         scan_ctrl_frame = ttk.LabelFrame(top_left, text="Scan Control", padding=10)
         scan_ctrl_frame.pack(fill=tk.X, pady=(10,0))
         
@@ -303,7 +295,6 @@ class StageControlApp:
         self.stop_scan_button = ttk.Button(scan_ctrl_frame, text="Stop Scan", command=self.stop_scan, state=tk.DISABLED)
         self.stop_scan_button.pack(side=tk.LEFT, expand=True, fill=tk.X)
         
-        # --- Minimap Frame ---
         self.fig = Figure(figsize=(2.8, 2.8), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
@@ -323,7 +314,6 @@ class StageControlApp:
         self.canvas.mpl_connect('motion_notify_event', self.on_pan_motion)
         self.canvas.mpl_connect('button_release_event', self.on_pan_release)
         
-        # --- Manual Control Frame ---
         manual_frame = ttk.LabelFrame(top_right, text="Manual Control", padding=10)
         manual_frame.pack(fill=tk.X, pady=(10,0), anchor='n')
         jog_frame = ttk.Frame(manual_frame)
@@ -334,7 +324,6 @@ class StageControlApp:
         ttk.Button(jog_frame, text="→", command=lambda: self._manual_move(1, 0)).grid(row=1, column=2)
         ttk.Button(jog_frame, text="↓", command=lambda: self._manual_move(0, -1)).grid(row=2, column=1)
 
-        # --- Scan Parameters Frame ---
         param_frame = ttk.LabelFrame(bottom_left, text="Scan Parameters", padding=10)
         param_frame.pack(expand=True, fill=tk.BOTH)
         self.scan_entries = {}
@@ -351,8 +340,8 @@ class StageControlApp:
         ttk.Label(param_frame, text="X-Axis", font='-weight bold').grid(row=1, column=0, columnspan=3, pady=5)
         ttk.Label(param_frame, text="Y-Axis", font='-weight bold').grid(row=1, column=3, columnspan=3, pady=5)
         
-        scan_fields_x = {"start_x":("Start", "0.0", "mm"), "steps_x":("Points","50", ""), "step_x":("Step","0.2", "mm")}
-        scan_fields_y = {"start_y":("Start","0.0", "mm"), "steps_y":("Points","50", ""), "step_y":("Step","0.2", "mm"), "backlash_y":("Backlash", "0.01", "mm")}
+        scan_fields_x = {"start_x":("Start", "0.0", "um"), "steps_x":("Points","50", ""), "step_x":("Step","200.0", "um")}
+        scan_fields_y = {"start_y":("Start","0.0", "um"), "steps_y":("Points","50", ""), "step_y":("Step","200.0", "um"), "backlash_y":("Backlash", "10.0", "um")}
         
         for i, (k, (l, v, u)) in enumerate(scan_fields_x.items()): 
             ttk.Label(param_frame, text=l+":").grid(row=i+2, column=0, sticky="w")
@@ -376,7 +365,7 @@ class StageControlApp:
         param_frame.columnconfigure(5, minsize=15)
         ttk.Separator(param_frame, orient='horizontal').grid(row=6, column=0, columnspan=6, sticky='ew', pady=10)
         
-        scan_fields_general = {"speed":("Speed","2.0", "mm/s"), "dwell":("Dwell","0.01", "s")}
+        scan_fields_general = {"speed":("Speed","2000.0", "um/s"), "dwell":("Dwell","0.01", "s")}
         for i, (k, (l, v, u)) in enumerate(scan_fields_general.items()): 
             ttk.Label(param_frame, text=l+":").grid(row=7, column=i*3, sticky="w")
             e = ttk.Entry(param_frame, width=8)
@@ -385,7 +374,6 @@ class StageControlApp:
             self.scan_entries[k] = e
             ttk.Label(param_frame, text=u).grid(row=7, column=i*3+2, sticky='w')
     
-    # --- МЕТОДЫ ГУИ ---
     def _manual_move(self, dx_factor, dy_factor):
         if not self.controller.is_connected(): 
             messagebox.showwarning("Warning", "Not connected.")
@@ -406,11 +394,11 @@ class StageControlApp:
         pos = self.controller.get_position()
         if pos:
             x, y = pos
-            self.controller.log(f"INFO: Position received: X={x:.4f}, Y={y:.4f}")
+            self.controller.log(f"INFO: Position received: X={x:.1f}, Y={y:.1f}")
             self.scan_entries['start_x'].delete(0, tk.END)
-            self.scan_entries['start_x'].insert(0, f"{x:.4f}")
+            self.scan_entries['start_x'].insert(0, f"{x:.1f}")
             self.scan_entries['start_y'].delete(0, tk.END)
-            self.scan_entries['start_y'].insert(0, f"{y:.4f}")
+            self.scan_entries['start_y'].insert(0, f"{y:.1f}")
             self.update_scan_area_preview()
         else: 
             messagebox.showerror("Error", "Failed to get position.")
@@ -431,9 +419,9 @@ class StageControlApp:
             new_start_x = center_x - total_width / 2.0
             new_start_y = center_y - total_height / 2.0
             self.scan_entries['start_x'].delete(0, tk.END)
-            self.scan_entries['start_x'].insert(0, f"{new_start_x:.4f}")
+            self.scan_entries['start_x'].insert(0, f"{new_start_x:.1f}")
             self.scan_entries['start_y'].delete(0, tk.END)
-            self.scan_entries['start_y'].insert(0, f"{new_start_y:.4f}")
+            self.scan_entries['start_y'].insert(0, f"{new_start_y:.1f}")
             self.update_scan_area_preview()
         else: 
             messagebox.showerror("Error", "Failed to get position.")
@@ -457,7 +445,7 @@ class StageControlApp:
         x0, x1, y0, y1 = self.minimap_extents
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
         w, h = (x1 - x0) / 4, (y1 - y0) / 4
-        self.minimap_extents = [cx - w, cx + w, cy - h, cy + h]
+        self.minimap_extents =[cx - w, cx + w, cy - h, cy + h]
         self.update_minimap_view()
 
     def zoom_out(self): 
@@ -506,8 +494,8 @@ class StageControlApp:
         max_y = max(params['start_y'], params['end_y'])
         width = max_x - min_x
         height = max_y - min_y
-        margin_x = max(width * 0.1, 0.5)
-        margin_y = max(height * 0.1, 0.5)
+        margin_x = max(width * 0.1, 500.0)
+        margin_y = max(height * 0.1, 500.0)
         self.minimap_extents =[min_x - margin_x, max_x + margin_x, min_y - margin_y, max_y + margin_y]
         self.update_minimap_view()
 
