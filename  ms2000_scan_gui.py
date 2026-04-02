@@ -374,3 +374,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
     root.mainloop()
+
+    # Добавить возможность фокусировки
