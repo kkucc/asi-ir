@@ -1,4 +1,4 @@
-# ms2000_cockpit_v24_unified_step.py
+# ms2000_cockpit_v28_z_control.py
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial
@@ -74,10 +74,10 @@ class MS2000Controller:
         if not self.is_connected(): return None
         with self.lock:
             try:
-                if not quiet: self.log(f"CMD > {cmd}")
+                # if not quiet: self.log(f"CMD > {cmd}") # Раскомментировать для отладки
                 self.ser.reset_input_buffer(); self.ser.write(f"{cmd}\r".encode('ascii'))
                 response = self.ser.read_until(b'\r\n').decode('ascii').strip()
-                if not quiet: self.log(f"RSP < {response}")
+                # if not quiet: self.log(f"RSP < {response}") # Раскомментировать для отладки
                 return response
             except Exception as e: self.log(f"ERROR: {e}"); return None
             
@@ -89,18 +89,25 @@ class MS2000Controller:
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.02)
             
-    def get_position(self) -> Optional[tuple[float, float]]:
-        response = self.send_command("W X Y")
+    def get_position(self) -> Optional[tuple[float, float, float]]:
+        response = self.send_command("W X Y Z", quiet=True)
         if response and response.startswith(":A"):
             try:
-                parts = response.split(); x_stage = float(parts[1])/UNITS_UM_TO_DEVICE; y_stage = float(parts[2])/UNITS_UM_TO_DEVICE
-                return self._transform_coords_from_stage(x_stage, y_stage)
+                parts = response.split()
+                x_stage = float(parts[1])/UNITS_UM_TO_DEVICE
+                y_stage = float(parts[2])/UNITS_UM_TO_DEVICE
+                z_stage = float(parts[3])/UNITS_UM_TO_DEVICE
+                x_gui, y_gui = self._transform_coords_from_stage(x_stage, y_stage)
+                return (x_gui, y_gui, z_stage)
             except: self.log("ERROR: Could not parse position."); return None
         return None
 
     def move_absolute(self, x_gui, y_gui):
         x_stage, y_stage = self._transform_coords_to_stage(x_gui, y_gui)
         self.send_command(f"M X={int(x_stage*UNITS_UM_TO_DEVICE)} Y={int(y_stage*UNITS_UM_TO_DEVICE)}")
+
+    def move_absolute_z(self, z_gui):
+        self.send_command(f"M Z={int(z_gui*UNITS_UM_TO_DEVICE)}")
     
     def move_relative(self, dx_gui, dy_gui):
         dx_stage, dy_stage = dx_gui, dy_gui
@@ -111,6 +118,9 @@ class MS2000Controller:
         if int(dx_stage*UNITS_UM_TO_DEVICE) != 0: cmd += f" X={int(dx_stage*UNITS_UM_TO_DEVICE)}"
         if int(dy_stage*UNITS_UM_TO_DEVICE) != 0: cmd += f" Y={int(dy_stage*UNITS_UM_TO_DEVICE)}"
         if cmd != "R": self.send_command(cmd)
+
+    def move_relative_z(self, dz_gui):
+        self.send_command(f"R Z={int(dz_gui*UNITS_UM_TO_DEVICE)}")
 
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
@@ -172,12 +182,13 @@ class MS2000Controller:
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v27 (Unified Step)"); self.root.geometry("750x550")
+        self.root = root; self.root.title("MS-2000 Cockpit v28 (Z-Control)"); self.root.geometry("750x550")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents =[STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
         self.scan_thread=None; self.progress_line=None; self.scan_image=None; self.scan_area_patch=None
         self._pan_start_x=None; self._pan_start_y=None
+        self._position_updater_job = None
         self._create_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -216,13 +227,30 @@ class StageControlApp:
         map_controls=ttk.Frame(top_right); map_controls.pack(fill=tk.X, pady=5, anchor='n'); ttk.Label(map_controls, text="Map View:").pack(side=tk.LEFT); ttk.Button(map_controls, text="+", width=3, command=self.zoom_in).pack(side=tk.LEFT); ttk.Button(map_controls, text="-", width=3, command=self.zoom_out).pack(side=tk.LEFT); ttk.Button(map_controls, text="Reset", command=self.reset_zoom).pack(side=tk.LEFT)
         self.canvas.mpl_connect('button_press_event', self.on_pan_press); self.canvas.mpl_connect('motion_notify_event', self.on_pan_motion); self.canvas.mpl_connect('button_release_event', self.on_pan_release)
         
+        # --- Manual Control with Z-Axis ---
         manual_frame = ttk.LabelFrame(top_right, text="Manual Control", padding=10); manual_frame.pack(fill=tk.X, pady=(10,0), anchor='n')
+        
+        pos_frame = ttk.Frame(manual_frame); pos_frame.pack(fill=tk.X, pady=(0,10))
+        ttk.Label(pos_frame, text="X Pos:").grid(row=0, column=0, sticky='w'); self.x_pos_entry = ttk.Entry(pos_frame, width=8, state='readonly'); self.x_pos_entry.grid(row=0, column=1)
+        ttk.Label(pos_frame, text="Y Pos:").grid(row=1, column=0, sticky='w'); self.y_pos_entry = ttk.Entry(pos_frame, width=8, state='readonly'); self.y_pos_entry.grid(row=1, column=1)
+        ttk.Label(pos_frame, text="Z Pos:").grid(row=2, column=0, sticky='w'); self.z_pos_entry = ttk.Entry(pos_frame, width=8, state='readonly'); self.z_pos_entry.grid(row=2, column=1)
+        
         jog_frame = ttk.Frame(manual_frame); jog_frame.pack()
         ttk.Button(jog_frame, text="↑", command=lambda: self._manual_move(0, -1)).grid(row=0, column=1)
         ttk.Button(jog_frame, text="←", command=lambda: self._manual_move(-1, 0)).grid(row=1, column=0)
         ttk.Button(jog_frame, text="→", command=lambda: self._manual_move(1, 0)).grid(row=1, column=2)
         ttk.Button(jog_frame, text="↓", command=lambda: self._manual_move(0, 1)).grid(row=2, column=1)
+        
+        ttk.Separator(jog_frame, orient='vertical').grid(row=0, column=3, rowspan=3, sticky='ns', padx=10)
+        
+        ttk.Button(jog_frame, text="↑ Z", command=lambda: self._manual_move_z(1)).grid(row=0, column=4, rowspan=2, sticky='ns')
+        ttk.Button(jog_frame, text="↓ Z", command=lambda: self._manual_move_z(-1)).grid(row=2, column=4, rowspan=1, sticky='sew')
+        
+        z_step_frame = ttk.Frame(manual_frame); z_step_frame.pack(fill=tk.X, pady=(10,0))
+        ttk.Label(z_step_frame, text="Z Step (um):").pack(side=tk.LEFT)
+        self.z_step_entry = ttk.Entry(z_step_frame, width=6); self.z_step_entry.insert(0, "0.5"); self.z_step_entry.pack(side=tk.LEFT)
 
+        # --- Scan Parameters Frame ---
         param_frame=ttk.LabelFrame(bottom_left, text="Scan Parameters", padding=10); param_frame.pack(expand=True,fill=tk.BOTH)
         self.scan_entries={}
         
@@ -246,12 +274,8 @@ class StageControlApp:
         param_frame.columnconfigure(2,minsize=15); param_frame.columnconfigure(5,minsize=15)
         ttk.Separator(param_frame,orient='horizontal').grid(row=4,column=0,columnspan=6,sticky='ew',pady=10)
         
-        general_fields = {
-            "acc_time":("Dwell","1.0", "s"), 
-            "speed":("Speed","2000.0", "um/s"), 
-            "backlash":("Backlash", "1.0", "um")
-        }
-        start_row = 5                   
+        general_fields = { "acc_time":("Acc. Time","1.0", "s"), "speed":("Speed","2000.0", "um/s"), "backlash":("Backlash", "1.0", "um") }
+        start_row = 5
         for i, (k, (l, v, u)) in enumerate(general_fields.items()):
             ttk.Label(param_frame, text=l+":").grid(row=start_row + i, column=0, sticky="w", pady=2)
             e=ttk.Entry(param_frame, width=8); e.insert(0,v); e.grid(row=start_row + i, column=1, padx=5, pady=2)
@@ -270,16 +294,27 @@ class StageControlApp:
             def move_with_speed():
                 self.controller.send_command(f"S X={speed} Y={speed}", quiet=True)
                 self.controller.move_relative(dx, dy)
-                
             threading.Thread(target=move_with_speed, daemon=True).start()
-        except (ValueError, KeyError):
-            messagebox.showerror("Error", "Invalid step or speed value in Scan Parameters.")
+        except (ValueError, KeyError): messagebox.showerror("Error", "Invalid step or speed value.")
+
+    def _manual_move_z(self, dz_factor):
+        if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
+        try:
+            step_z = float(self.z_step_entry.get())
+            speed = float(self.scan_entries['speed'].get()) / 1000.0
+            dz = step_z * dz_factor
+            
+            def move_with_speed():
+                self.controller.send_command(f"S Z={speed}", quiet=True)
+                self.controller.move_relative_z(dz)
+            threading.Thread(target=move_with_speed, daemon=True).start()
+        except (ValueError, KeyError): messagebox.showerror("Error", "Invalid Z-step or speed value.")
 
     def get_current_position_as_start(self):
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
         pos = self.controller.get_position()
         if pos:
-            x, y = pos; self.controller.log(f"INFO: Position received: X={x:.1f}, Y={y:.1f}")
+            x, y, z = pos; self.controller.log(f"INFO: Position received: X={x:.1f}, Y={y:.1f}")
             self.scan_entries['start_x'].delete(0, tk.END); self.scan_entries['start_x'].insert(0, f"{x:.1f}")
             self.scan_entries['start_y'].delete(0, tk.END); self.scan_entries['start_y'].insert(0, f"{y:.1f}")
             self.update_scan_area_preview()
@@ -291,12 +326,32 @@ class StageControlApp:
         if not params: messagebox.showerror("Error", "Invalid scan size parameters."); return
         pos = self.controller.get_position()
         if pos:
-            center_x, center_y = pos; total_width=(params['steps_x']-1)*params['step_x']; total_height=(params['steps_y']-1)*params['step_y']
+            center_x, center_y, z = pos
+            total_width=(params['steps_x']-1)*params['step_x']
+            total_height=(params['steps_y']-1)*params['step_y']
             new_start_x=center_x-total_width/2.0; new_start_y=center_y-total_height/2.0
             self.scan_entries['start_x'].delete(0,tk.END); self.scan_entries['start_x'].insert(0,f"{new_start_x:.1f}")
             self.scan_entries['start_y'].delete(0,tk.END); self.scan_entries['start_y'].insert(0,f"{new_start_y:.1f}")
             self.update_scan_area_preview()
         else: messagebox.showerror("Error", "Failed to get position.")
+    
+    def _update_position_display(self):
+        if self.controller.is_connected():
+            pos = self.controller.get_position()
+            if pos:
+                x, y, z = pos
+                self.x_pos_entry.config(state='normal'); self.x_pos_entry.delete(0, tk.END); self.x_pos_entry.insert(0, f"{x:.2f}"); self.x_pos_entry.config(state='readonly')
+                self.y_pos_entry.config(state='normal'); self.y_pos_entry.delete(0, tk.END); self.y_pos_entry.insert(0, f"{y:.2f}"); self.y_pos_entry.config(state='readonly')
+                self.z_pos_entry.config(state='normal'); self.z_pos_entry.delete(0, tk.END); self.z_pos_entry.insert(0, f"{z:.2f}"); self.z_pos_entry.config(state='readonly')
+        self._position_updater_job = self.root.after(250, self._update_position_display)
+
+    def _start_position_updater(self):
+        self._update_position_display()
+        
+    def _stop_position_updater(self):
+        if self._position_updater_job:
+            self.root.after_cancel(self._position_updater_job)
+            self._position_updater_job = None
         
     def setup_minimap(self):self.ax.clear();self.ax.set_xticks([]);self.ax.set_yticks([]);self.ax.set_facecolor('#cccccc');self.ax.set_aspect('equal',adjustable='box');self.scan_image=None;self.scan_area_patch=None;self.update_minimap_view()
     def update_minimap_view(self): self.ax.set_xlim(self.minimap_extents[0:2]);self.ax.set_ylim(self.minimap_extents[2:4]);self.canvas.draw()
@@ -364,15 +419,22 @@ class StageControlApp:
     def connect(self):
         if self.controller.connect(self.conn_entries['port'].get(),int(self.conn_entries['baudrate'].get())):
             self.connect_button.config(state=tk.DISABLED);self.disconnect_button.config(state=tk.NORMAL);self.start_scan_button.config(state=tk.NORMAL)
+            self._start_position_updater()
             
-    def disconnect(self): self.controller.disconnect();self.connect_button.config(state=tk.NORMAL);self.disconnect_button.config(state=tk.DISABLED);self.start_scan_button.config(state=tk.DISABLED);self.stop_scan_button.config(state=tk.DISABLED)
+    def disconnect(self): 
+        self._stop_position_updater()
+        self.controller.disconnect()
+        self.connect_button.config(state=tk.NORMAL);self.disconnect_button.config(state=tk.DISABLED);self.start_scan_button.config(state=tk.DISABLED);self.stop_scan_button.config(state=tk.DISABLED)
+
     def stop_scan(self):
         if self.scan_thread and self.scan_thread.is_alive():self.controller.stop_scan()
-    def on_closing(self): self.controller.disconnect();self.root.destroy()
+
+    def on_closing(self): 
+        self._stop_position_updater()
+        self.controller.disconnect()
+        self.root.destroy()
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
     root.mainloop()
-
-    # Добавить возможность фокусировки
