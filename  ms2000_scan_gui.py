@@ -7,6 +7,7 @@ import threading
 import numpy as np
 from typing import Optional, Callable, Any
 import abc
+import timetagger_imager
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -215,7 +216,6 @@ class StageControlApp:
         ttk.Label(scan_ctrl_frame, text="Device:").pack(fill=tk.X); 
         self.device_combobox=ttk.Combobox(scan_ctrl_frame,values=[str(d) for d in self.available_devices],state="readonly"); self.device_combobox.current(0); self.device_combobox.pack(fill=tk.X,pady=(0,5))
         
-        # --- Новые Радиокнопки ---
         start_mode_frame = ttk.Frame(scan_ctrl_frame)
         start_mode_frame.pack(fill=tk.X, pady=(0, 5))
         ttk.Radiobutton(start_mode_frame, text="Auto-Center at Current Pos", variable=self.start_mode_var, value="center").pack(anchor='w')
@@ -226,6 +226,10 @@ class StageControlApp:
         self.start_scan_button=ttk.Button(btn_row_1,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,2))
         self.stop_scan_button=ttk.Button(btn_row_1,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(2,0))
         
+        btn_row_tt = ttk.Frame(scan_ctrl_frame); btn_row_tt.pack(fill=tk.X, pady=(5,0))
+        self.tt_button = ttk.Button(btn_row_tt, text="Open Time Tagger DAQ", command=self.open_timetagger_imager)
+        self.tt_button.pack(fill=tk.X, expand=True)
+
         self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0,right=1,top=1,bottom=0)
         self.canvas=FigureCanvasTkAgg(self.fig, master=top_right); self.canvas.get_tk_widget().pack(fill=tk.X, anchor='n'); self.setup_minimap()
         map_controls=ttk.Frame(top_right); map_controls.pack(fill=tk.X, pady=5, anchor='n'); ttk.Label(map_controls, text="Map View:").pack(side=tk.LEFT); ttk.Button(map_controls, text="+", width=3, command=self.zoom_in).pack(side=tk.LEFT); ttk.Button(map_controls, text="-", width=3, command=self.zoom_out).pack(side=tk.LEFT); ttk.Button(map_controls, text="Reset", command=self.reset_zoom).pack(side=tk.LEFT)
@@ -325,7 +329,8 @@ class StageControlApp:
                 self.y_pos_entry.config(state='normal'); self.y_pos_entry.delete(0, tk.END); self.y_pos_entry.insert(0, f"{y:.2f}"); self.y_pos_entry.config(state='readonly')
                 self.z_pos_entry.config(state='normal'); self.z_pos_entry.delete(0, tk.END); self.z_pos_entry.insert(0, f"{z:.2f}"); self.z_pos_entry.config(state='readonly')
         self._position_updater_job = self.root.after(250, self._update_position_display)
-
+    def open_timetagger_imager(self):
+        timetagger_imager.TimeTaggerImagerWindow(self.root)
     def _start_position_updater(self): self._update_position_display()
     def _stop_position_updater(self):
         if self._position_updater_job: self.root.after_cancel(self._position_updater_job); self._position_updater_job = None
