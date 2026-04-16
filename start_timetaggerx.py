@@ -10,7 +10,7 @@ def main():
         print(f"Conneccted: {tagger.getModel()}, S/N: {tagger.getSerial()}")
         
         # уровень триггера на 0.5 Вольт?
-        tagger.setTriggerLevel(CHANNEL, 0.5)
+        tagger.setTriggerLevel(CHANNEL, 1.7)
         print(f"{CHANNEL} 0.5?")
         rate = TimeTagger.Countrate(tagger, channels=[CHANNEL])
         
@@ -36,3 +36,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#     Conneccted: Time Tagger Ultra, S/N: 22300011M7
+# 5 0.5?
+
+#  Reading 5
+
+# --------------------------------------------------
+
+#  name 'counts_hz' is not defined
+# Done.
+# PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode> 
+
