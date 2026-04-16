@@ -1,39 +1,38 @@
 import time
-import numpy as np
+import TimeTagger
 
-try:
-    import TimeTagger
-except ImportError:
-    exit()
+CHANNEL = 5
 
-tagger = None
-try:
-    print("Подключаемся к Time Tagger...")
-    tagger = TimeTagger.createTimeTagger()
-    print(f"{tagger.getModel()}, {tagger.getSerial()}")
-
-    tagger.setTestSignal(1, True)
-    print("Inside test signal, channel 1")
-
-    # количество событий на канале 1.
-    countrate = TimeTagger.Countrate(tagger=tagger, channels=[1])
-    print("Измеритель 'Countrate' создан. Начинаем сбор данных...")
-    time.sleep(0.5)
-
-    print("-" * 40)
-    for i in range(5):
-        time.sleep(1) 
+def main():
+    tagger = None
+    try:
+        tagger = TimeTagger.createTimeTagger()
+        print(f"Conneccted: {tagger.getModel()}, S/N: {tagger.getSerial()}")
         
-        data = countrate.getData()
-        current_rate_hz = data[0]
+        # уровень триггера на 0.5 Вольт?
+        tagger.setTriggerLevel(CHANNEL, 0.5)
+        print(f"{CHANNEL} 0.5?")
+        rate = TimeTagger.Countrate(tagger, channels=[CHANNEL])
         
-        print(f"Секунда {i+1}: Текущая частота = {current_rate_hz / 1000:.2f} кГц")
+        print(f"\n Reading {CHANNEL}\n")
+        print("-" * 50)
+        
+        while True:
+            time.sleep(0.2) 
+            ounts_hz = rate.getData()[0]
+            if counts_hz > 0:
+                print(f" {CHANNEL} | Частота: {counts_hz:.2f} Гц")
+            else:
+                print(f"{CHANNEL} | Частота: 0.00 Гц", end='\r')
 
-except Exception as e:
-    print(f"\n{e}")
+    except KeyboardInterrupt:
+        print("\n\nkeynord interapt")
+    except Exception as e:
+        print(f"\n {e}")
+    finally:
+        if tagger is not None:
+            TimeTagger.freeTimeTagger(tagger)
+            print("Done.")
 
-finally:
-    if tagger:
-        tagger.setTestSignal(1, False)
-        TimeTagger.freeTimeTagger(tagger)
-        print("Done.")
+if __name__ == "__main__":
+    main()
