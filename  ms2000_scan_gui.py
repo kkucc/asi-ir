@@ -1,4 +1,4 @@
-# ms2000_cockpit_v29_auto_center.py
+# ms2000_cockpit_v30_start_modes.py
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial
@@ -180,7 +180,7 @@ class MS2000Controller:
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v29 (Auto-Center)"); self.root.geometry("750x550")
+        self.root = root; self.root.title("MS-2000 Cockpit v30 (Start Modes)"); self.root.geometry("750x550")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
         self.minimap_extents =[STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
@@ -188,7 +188,7 @@ class StageControlApp:
         self._pan_start_x=None; self._pan_start_y=None
         self._position_updater_job = None
         
-        self.auto_center_var = tk.BooleanVar(value=True) 
+        self.start_mode_var = tk.StringVar(value="center")
         
         self._create_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -215,8 +215,13 @@ class StageControlApp:
         ttk.Label(scan_ctrl_frame, text="Device:").pack(fill=tk.X); 
         self.device_combobox=ttk.Combobox(scan_ctrl_frame,values=[str(d) for d in self.available_devices],state="readonly"); self.device_combobox.current(0); self.device_combobox.pack(fill=tk.X,pady=(0,5))
         
-        ttk.Checkbutton(scan_ctrl_frame, text="Auto-Center Before Scan", variable=self.auto_center_var).pack(fill=tk.X, pady=(0, 5))
-        
+        # --- Новые Радиокнопки ---
+        start_mode_frame = ttk.Frame(scan_ctrl_frame)
+        start_mode_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Radiobutton(start_mode_frame, text="Auto-Center at Current Pos", variable=self.start_mode_var, value="center").pack(anchor='w')
+        ttk.Radiobutton(start_mode_frame, text="Start from Current Pos", variable=self.start_mode_var, value="start").pack(anchor='w')
+        ttk.Radiobutton(start_mode_frame, text="Use Manual Start Coords", variable=self.start_mode_var, value="manual").pack(anchor='w')
+
         btn_row_1 = ttk.Frame(scan_ctrl_frame); btn_row_1.pack(fill=tk.X)
         self.start_scan_button=ttk.Button(btn_row_1,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,2))
         self.stop_scan_button=ttk.Button(btn_row_1,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(2,0))
@@ -292,17 +297,25 @@ class StageControlApp:
         pos = self.controller.get_position()
         if pos:
             center_x, center_y, _ = pos
-            total_width=(params['steps_x']-1)*params['step_x']
-            total_height=(params['steps_y']-1)*params['step_y']
+            total_width=(params['steps_x']-1)*params['step_x']; total_height=(params['steps_y']-1)*params['step_y']
             new_start_x=center_x-total_width/2.0; new_start_y=center_y-total_height/2.0
             self.scan_entries['start_x'].delete(0,tk.END); self.scan_entries['start_x'].insert(0,f"{new_start_x:.1f}")
             self.scan_entries['start_y'].delete(0,tk.END); self.scan_entries['start_y'].insert(0,f"{new_start_y:.1f}")
             self.update_scan_area_preview()
             return True
-        else:
-            messagebox.showerror("Error", "Failed to get position for auto-centering.")
-            return False
-    
+        else: messagebox.showerror("Error", "Failed to get position for auto-centering."); return False
+        
+    def set_current_position_as_start(self) -> bool:
+        if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return False
+        pos = self.controller.get_position()
+        if pos:
+            x, y, _ = pos
+            self.scan_entries['start_x'].delete(0, tk.END); self.scan_entries['start_x'].insert(0, f"{x:.1f}")
+            self.scan_entries['start_y'].delete(0, tk.END); self.scan_entries['start_y'].insert(0, f"{y:.1f}")
+            self.update_scan_area_preview()
+            return True
+        else: messagebox.showerror("Error", "Failed to get position for setting start."); return False
+
     def _update_position_display(self):
         if self.controller.is_connected():
             pos = self.controller.get_position()
@@ -340,11 +353,11 @@ class StageControlApp:
         self.minimap_extents=[min_x-margin_x,max_x+margin_x,min_y-margin_y,max_y+margin_y];self.update_minimap_view()
         
     def start_scan(self):
-        if self.auto_center_var.get():
-            success = self.set_current_position_as_center()
-            if not success:
-                self.controller.log("ERROR: Auto-centering failed. Scan aborted.")
-                return 
+        start_mode = self.start_mode_var.get()
+        if start_mode == "center":
+            if not self.set_current_position_as_center(): return
+        elif start_mode == "start":
+            if not self.set_current_position_as_start(): return
         
         params=self.get_scan_params();dev_str=self.device_combobox.get()
         if params is None or not dev_str: return
