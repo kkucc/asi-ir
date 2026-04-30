@@ -1,4 +1,4 @@
-# ms2000_cockpit_v30_start_modes.py
+# ms2000_cockpit.py
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial
@@ -7,7 +7,8 @@ import threading
 import numpy as np
 from typing import Optional, Callable, Any
 import abc
-import timetagger_imager
+
+import timetagger_device
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -17,8 +18,11 @@ from matplotlib.patches import Rectangle
 UNITS_UM_TO_DEVICE = 10; STAGE_X_MIN, STAGE_X_MAX = -34000.0, 39000.0; STAGE_Y_MIN, STAGE_Y_MAX = -34000.0, 39000.0
 
 class AcquisitionDevice(abc.ABC):
+    def setup_scan(self, total_pixels: int, dwell_s: float): pass
     @abc.abstractmethod
     def acquire(self, dwell_time: float, x: float, y: float) -> Any: pass
+    def teardown_scan(self): pass
+    def close(self): pass
     def __str__(self): return self.__class__.__name__
 
 class SmartDummySignal(AcquisitionDevice):
@@ -27,10 +31,6 @@ class SmartDummySignal(AcquisitionDevice):
         center_x, center_y, radius = 10000.0, 10000.0, 5000.0
         distance = np.sqrt((x-center_x)**2 + (y-center_y)**2)
         return 90 + np.random.rand() * 10 if distance < radius else 10 + np.random.rand() * 10
-    
-class RandomNoiseDevice(AcquisitionDevice):
-    def acquire(self, dwell_time: float, x: float, y: float) -> float:
-        time.sleep(0.03); return np.random.rand() * 100
 
 class MS2000Controller:
     def __init__(self, log_callback: Callable[[str], None]):
@@ -131,17 +131,15 @@ class MS2000Controller:
             y_coords = np.linspace(params['start_y'], params['end_y'], steps_y)
             results = np.full((steps_y, steps_x), np.nan)
             
-            self.log(f"INFO: Setting travel speed to {travel_speed} mm/s")
-            self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
-            self.log(f"INFO: Moving slowly to pre-scan position...")
+            device.setup_scan(steps_x * steps_y, params['acc_time'])
             
+            self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
             self.move_absolute(x_coords[0] - backlash, y_coords[0] - backlash); self.wait_for_idle()
             self.move_absolute(x_coords[0], y_coords[0]); self.wait_for_idle()
             
             self.send_command(f"B X={0} Y={0}")
             if self.stop_event.is_set(): raise InterruptedError
             
-            self.log(f"INFO: Setting scan speed to {scan_speed} mm/s")
             self.send_command(f"S X={scan_speed} Y={scan_speed}")
 
             for i, y in enumerate(y_coords):
@@ -156,7 +154,9 @@ class MS2000Controller:
                     if j > 0:
                         self.move_absolute(x, y); self.wait_for_idle()
 
-                    self.send_command("TTL Y=1", quiet=True); self.send_command("TTL Y=0", quiet=True)
+                    self.send_command("TTL Y=1", quiet=True)
+                    self.send_command("TTL Y=0", quiet=True)
+                    
                     value = device.acquire(params['acc_time'], x, y)
                     results[i, j] = value
                 
@@ -171,19 +171,24 @@ class MS2000Controller:
                 self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
                 self.move_absolute(center_x - backlash, center_y - backlash); self.wait_for_idle()
                 self.move_absolute(center_x, center_y); self.wait_for_idle()
-                self.log("INFO: Reached center position.")
                 
         except InterruptedError: self.log("INFO: --- Scan Stopped ---"); self.send_command(chr(92))
         except Exception as e: self.log(f"ERROR: --- Scan Failed: {e} ---"); self.send_command(chr(92))
-        finally: self.is_running_scan = False
+        finally: 
+            device.teardown_scan()
+            self.is_running_scan = False
             
     def stop_scan(self): self.log("INFO: Stop signal sent."); self.stop_event.set()
 
+
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v30 (Start Modes)"); self.root.geometry("750x550")
+        self.root = root; self.root.title("MS-2000 Cockpit v31 (Monolith)"); self.root.geometry("780x550")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
-        self.available_devices = [SmartDummySignal(), RandomNoiseDevice()]
+        
+        self.tt_device_instance = None
+        self.active_device = None
+        
         self.minimap_extents =[STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
         self.scan_thread=None; self.progress_line=None; self.scan_image=None; self.scan_area_patch=None
         self._pan_start_x=None; self._pan_start_y=None
@@ -213,8 +218,17 @@ class StageControlApp:
         self.disconnect_button=ttk.Button(btn_frame,text="Disconnect",command=self.disconnect,state=tk.DISABLED); self.disconnect_button.pack(fill=tk.X, pady=2)
         
         scan_ctrl_frame=ttk.LabelFrame(top_left, text="Scan Control", padding=10); scan_ctrl_frame.pack(fill=tk.X, pady=(10,0))
-        ttk.Label(scan_ctrl_frame, text="Device:").pack(fill=tk.X); 
-        self.device_combobox=ttk.Combobox(scan_ctrl_frame,values=[str(d) for d in self.available_devices],state="readonly"); self.device_combobox.current(0); self.device_combobox.pack(fill=tk.X,pady=(0,5))
+        
+        dev_frame = ttk.Frame(scan_ctrl_frame)
+        dev_frame.pack(fill=tk.X, pady=(0,5))
+        ttk.Label(dev_frame, text="Device:").pack(side=tk.LEFT)
+        
+        self.device_combobox=ttk.Combobox(dev_frame, values=["SmartDummySignal", "TimeTagger"], state="readonly", width=15)
+        self.device_combobox.current(0)
+        self.device_combobox.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+        
+        self.btn_settings = ttk.Button(dev_frame, text="⚙️", width=3, command=self.open_device_settings)
+        self.btn_settings.pack(side=tk.LEFT)
         
         start_mode_frame = ttk.Frame(scan_ctrl_frame)
         start_mode_frame.pack(fill=tk.X, pady=(0, 5))
@@ -226,10 +240,6 @@ class StageControlApp:
         self.start_scan_button=ttk.Button(btn_row_1,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,2))
         self.stop_scan_button=ttk.Button(btn_row_1,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(2,0))
         
-        btn_row_tt = ttk.Frame(scan_ctrl_frame); btn_row_tt.pack(fill=tk.X, pady=(5,0))
-        self.tt_button = ttk.Button(btn_row_tt, text="Open Time Tagger DAQ", command=self.open_timetagger_imager)
-        self.tt_button.pack(fill=tk.X, expand=True)
-
         self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0,right=1,top=1,bottom=0)
         self.canvas=FigureCanvasTkAgg(self.fig, master=top_right); self.canvas.get_tk_widget().pack(fill=tk.X, anchor='n'); self.setup_minimap()
         map_controls=ttk.Frame(top_right); map_controls.pack(fill=tk.X, pady=5, anchor='n'); ttk.Label(map_controls, text="Map View:").pack(side=tk.LEFT); ttk.Button(map_controls, text="+", width=3, command=self.zoom_in).pack(side=tk.LEFT); ttk.Button(map_controls, text="-", width=3, command=self.zoom_out).pack(side=tk.LEFT); ttk.Button(map_controls, text="Reset", command=self.reset_zoom).pack(side=tk.LEFT)
@@ -271,6 +281,18 @@ class StageControlApp:
         for i, (k, (l, v, u)) in enumerate(general_fields.items()):
             ttk.Label(param_frame, text=l+":").grid(row=start_row + i, column=0, sticky="w", pady=2); e=ttk.Entry(param_frame, width=8); e.insert(0,v); e.grid(row=start_row + i, column=1, padx=5, pady=2); self.scan_entries[k]=e; ttk.Label(param_frame, text=u).grid(row=start_row + i, column=2, sticky="w", pady=2)
 
+    def open_device_settings(self):
+        """Открывает меню тонкой настройки, если выбран TimeTagger."""
+        dev = self.device_combobox.get()
+        if dev == "TimeTagger":
+            if not self.tt_device_instance:
+                self.tt_device_instance = timetagger_device.TimeTaggerDevice()
+            if not self.tt_device_instance.is_connected:
+                messagebox.showwarning("Внимание", "Time Tagger не обнаружен. Настройки могут не работать.", parent=self.root)
+            timetagger_device.TTSettingsPopup(self.root, self.tt_device_instance)
+        else:
+            messagebox.showinfo("Settings", f"Дополнительные настройки для {dev} не требуются.", parent=self.root)
+
     def _manual_move(self, dx_factor, dy_factor):
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return
         try:
@@ -307,7 +329,7 @@ class StageControlApp:
             self.scan_entries['start_y'].delete(0,tk.END); self.scan_entries['start_y'].insert(0,f"{new_start_y:.1f}")
             self.update_scan_area_preview()
             return True
-        else: messagebox.showerror("Error", "Failed to get position for auto-centering."); return False
+        return False
         
     def set_current_position_as_start(self) -> bool:
         if not self.controller.is_connected(): messagebox.showwarning("Warning", "Not connected."); return False
@@ -318,7 +340,7 @@ class StageControlApp:
             self.scan_entries['start_y'].delete(0, tk.END); self.scan_entries['start_y'].insert(0, f"{y:.1f}")
             self.update_scan_area_preview()
             return True
-        else: messagebox.showerror("Error", "Failed to get position for setting start."); return False
+        return False
 
     def _update_position_display(self):
         if self.controller.is_connected():
@@ -329,8 +351,7 @@ class StageControlApp:
                 self.y_pos_entry.config(state='normal'); self.y_pos_entry.delete(0, tk.END); self.y_pos_entry.insert(0, f"{y:.2f}"); self.y_pos_entry.config(state='readonly')
                 self.z_pos_entry.config(state='normal'); self.z_pos_entry.delete(0, tk.END); self.z_pos_entry.insert(0, f"{z:.2f}"); self.z_pos_entry.config(state='readonly')
         self._position_updater_job = self.root.after(250, self._update_position_display)
-    def open_timetagger_imager(self):
-        timetagger_imager.TimeTaggerImagerWindow(self.root)
+
     def _start_position_updater(self): self._update_position_display()
     def _stop_position_updater(self):
         if self._position_updater_job: self.root.after_cancel(self._position_updater_job); self._position_updater_job = None
@@ -366,10 +387,17 @@ class StageControlApp:
         
         params=self.get_scan_params();dev_str=self.device_combobox.get()
         if params is None or not dev_str: return
-        device = next((d for d in self.available_devices if str(d)==dev_str),None)
+        
+        if dev_str == "TimeTagger":
+            if not self.tt_device_instance:
+                self.tt_device_instance = timetagger_device.TimeTaggerDevice()
+            self.active_device = self.tt_device_instance
+        else:
+            self.active_device = SmartDummySignal()
+            
         self.start_scan_button.config(state=tk.DISABLED);self.stop_scan_button.config(state=tk.NORMAL); self.auto_zoom_to_scan_area(params)
         nan_data=np.full((int(params['steps_y']),int(params['steps_x'])),np.nan);self.plot_scan_data(nan_data,-1)
-        self.scan_thread=threading.Thread(target=self.controller.run_scan,args=(params,device,self.line_update_callback),daemon=True);self.scan_thread.start()
+        self.scan_thread=threading.Thread(target=self.controller.run_scan,args=(params,self.active_device,self.line_update_callback),daemon=True);self.scan_thread.start()
         self.check_scan_thread()
         
     def line_update_callback(self,data,row_idx): self.root.after(0,self.plot_scan_data,data,row_idx)
@@ -377,10 +405,21 @@ class StageControlApp:
     def plot_scan_data(self,data,row_index):
         p=self.get_scan_params(False);
         if not p: return
-        extent=[p['start_x'],p['end_x'],p['start_y'],p['end_y']]; cmap=cm.get_cmap('viridis').copy();cmap.set_bad(color='black')
-        if not self.scan_image:self.scan_image=self.ax.imshow(data,cmap=cmap,origin='lower',extent=extent,interpolation='none',vmin=0,vmax=100)
+        extent=[p['start_x'],p['end_x'],p['start_y'],p['end_y']]
+        
+        cmap = cm.get_cmap('viridis').copy()
+        cmap.set_bad(color='#222222')
+        
+        if not self.scan_image:self.scan_image=self.ax.imshow(data,cmap=cmap,origin='lower',extent=extent,interpolation='none')
         else:self.scan_image.set_data(data);self.scan_image.set_extent(extent)
-        if not np.all(np.isnan(data)):self.scan_image.set_clim(np.nanmin(data),np.nanmax(data))
+        
+        valid_data = data[~np.isnan(data)]
+        if len(valid_data) > 0:
+            vmax = np.percentile(valid_data, 99.9)
+            vmin = np.min(valid_data)
+            if vmax <= vmin: vmax = vmin + 1
+            self.scan_image.set_clim(vmin, vmax)
+            
         if self.progress_line:self.progress_line.remove()
         step_y=(p['end_y']-p['start_y'])/(p['steps_y']-1) if p['steps_y']>1 else 0; line_y_pos=p['start_y']+(row_index+0.5)*step_y
         if row_index<int(p['steps_y']-1):self.progress_line=self.ax.axhline(y=line_y_pos,color='yellow',lw=2,alpha=0.9)
@@ -417,7 +456,10 @@ class StageControlApp:
         if self.scan_thread and self.scan_thread.is_alive():self.controller.stop_scan()
 
     def on_closing(self): 
-        self._stop_position_updater(); self.controller.disconnect(); self.root.destroy()
+        self._stop_position_updater()
+        if self.tt_device_instance: self.tt_device_instance.close()
+        self.controller.disconnect()
+        self.root.destroy()
 
 if __name__ == "__main__":
     root = tk.Tk()
