@@ -495,3 +495,119 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
     root.mainloop()
+
+
+    PS C:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir> & "C:/Program Files/Python39/python.exe" "c:/Users/QE LAB/Documents/Visual Studio 2022/vscode/asi-ir/ ms2000_scan_gui.py"
+15:08:58 - INFO: Connected to MS-2000 on COM4.
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 387, in start_scan
+    if not self.set_current_position_as_center(): return
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 333, in set_current_position_as_center
+    self.update_scan_area_preview()
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 387, in start_scan
+    if not self.set_current_position_as_center(): return
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 333, in set_current_position_as_center
+    self.update_scan_area_preview()
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Program Files\Python39\lib\tkinter\__init__.py", line 1885, in __call__
+    return self.func(*args)
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 387, in start_scan
+    if not self.set_current_position_as_center(): return
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 333, in set_current_position_as_center
+    self.update_scan_area_preview()
+  File "c:\Users\QE LAB\Documents\Visual Studio 2022\vscode\asi-ir\ ms2000_scan_gui.py", line 376, in update_scan_area_preview
+    if self.scan_area_patch:self.scan_area_patch.remove()
+  File "C:\Program Files\Python39\lib\site-packages\matplotlib\artist.py", line 240, in remove
+    self._remove_method(self)
+ValueError: list.remove(x): x not in list
+s
