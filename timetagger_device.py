@@ -18,7 +18,7 @@ class TimeTaggerDevice:
         self.sync_channel = 5
         self.apd_channel = 1
         self.sync_trigger = 1.70
-        self.apd_trigger = 0.35
+        self.apd_trigger = -0.25
         
         self.ping_measurement = None
         self.cbm = None
