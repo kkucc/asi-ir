@@ -7,6 +7,8 @@ import threading
 import numpy as np
 from typing import Optional, Callable, Any
 import abc
+import os
+from datetime import datetime
 
 import timetagger_device
 
@@ -171,6 +173,7 @@ class MS2000Controller:
                 self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
                 self.move_absolute(center_x - backlash, center_y - backlash); self.wait_for_idle()
                 self.move_absolute(center_x, center_y); self.wait_for_idle()
+                self.log("INFO: Reached center position.")
                 
         except InterruptedError: self.log("INFO: --- Scan Stopped ---"); self.send_command(chr(92))
         except Exception as e: self.log(f"ERROR: --- Scan Failed: {e} ---"); self.send_command(chr(92))
@@ -415,7 +418,7 @@ class StageControlApp:
         
         valid_data = data[~np.isnan(data)]
         if len(valid_data) > 0:
-            vmax = np.percentile(valid_data, 99.9)
+            vmax = np.percentile(valid_data, 98.0)
             vmin = np.min(valid_data)
             if vmax <= vmin: vmax = vmin + 1
             self.scan_image.set_clim(vmin, vmax)
@@ -427,11 +430,38 @@ class StageControlApp:
         self.canvas.draw()
         
     def check_scan_thread(self):
-        if self.scan_thread and self.scan_thread.is_alive():self.root.after(100,self.check_scan_thread)
+        if self.scan_thread and self.scan_thread.is_alive():
+            self.root.after(100, self.check_scan_thread)
         else:
             self.stop_scan_button.config(state=tk.DISABLED)
-            if self.controller.is_connected():self.start_scan_button.config(state=tk.NORMAL)
-            self.reset_zoom();self.setup_minimap();self.update_scan_area_preview()
+            if self.controller.is_connected():
+                self.start_scan_button.config(state=tk.NORMAL)
+            
+            if self.scan_image is not None and hasattr(self, 'active_device') and self.active_device is not None:
+                self.save_scan_results()
+            
+            self.reset_zoom()
+            self.setup_minimap()
+            self.update_scan_area_preview()
+            
+    def save_scan_results(self):
+        if not self.scan_image: return
+        data = self.scan_image.get_array()
+        
+        os.makedirs("results", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        csv_filename = f"results/scan_{timestamp}.csv"
+        png_filename = f"results/scan_{timestamp}.png"
+        
+        np.savetxt(csv_filename, data, delimiter=",", fmt="%.2f")
+        
+        if self.fig:
+            self.ax.set_title(f"Scan Completed: {timestamp}")
+            self.canvas.draw()
+            self.fig.savefig(png_filename, dpi=150, bbox_inches='tight')
+            
+        self.controller.log(f"INFO: Data saved to {csv_filename} and {png_filename}")
             
     def get_scan_params(self,validate=True):
         try:
