@@ -248,6 +248,7 @@ class TimeTaggerImagerWindow:
         self.delayed_sync = None
         self._update_ping()
 
+ #параметры дрбавить
     def _save_results(self):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         os.makedirs("results", exist_ok=True)
