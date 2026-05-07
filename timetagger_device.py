@@ -33,7 +33,14 @@ class TimeTaggerDevice:
         try:
             self.tagger = TimeTagger.createTimeTagger()
             self.apply_triggers()
-            self.ping_measurement = TimeTagger.Countrate(self.tagger, channels=[1, 2, 3, 4, 5])
+            
+            self.ping_measurement = TimeTagger.Counter(
+                self.tagger, 
+                channels=[1, 2, 3, 4, 5], 
+                binwidth=int(2e11), 
+                n_values=1
+            )
+            
             self.is_connected = True
             print(f"[TimeTagger] Успешное подключение. Модель: {self.tagger.getModel()}")
         except Exception as e:
@@ -43,7 +50,7 @@ class TimeTaggerDevice:
     def apply_triggers(self):
         if self.tagger:
             self.tagger.setTriggerLevel(self.sync_channel, self.sync_trigger)
-            for ch in [1, 2, 3, 4]:
+            for ch in[1, 2, 3, 4]:
                 self.tagger.setTriggerLevel(ch, self.apd_trigger)
 
     def setup_scan(self, total_pixels: int, dwell_s: float):
@@ -95,12 +102,17 @@ class TimeTaggerDevice:
 
     def teardown_scan(self):
         """Очистка памяти измерений после скана."""
+        if self.cbm: self.cbm.stop()
+        if self.sync_counter: self.sync_counter.stop()
+        
         self.cbm = None
         self.delayed_sync = None
         self.sync_counter = None
 
     def close(self):
         if self.tagger:
+            if self.ping_measurement:
+                self.ping_measurement.stop()
             TimeTagger.freeTimeTagger(self.tagger)
             self.tagger = None
             self.is_connected = False
@@ -116,7 +128,6 @@ class TTSettingsPopup:
         self.window.title("Time Tagger Settings")
         self.window.geometry("380x300")
         self.window.resizable(False, False)
-        
         self.window.transient(parent)
         
         self._setup_ui()
@@ -126,6 +137,7 @@ class TTSettingsPopup:
         main_frame = ttk.Frame(self.window, padding=15)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # --- Trigger Levels ---
         trig_lf = ttk.LabelFrame(main_frame, text="Trigger Levels (V)", padding=10)
         trig_lf.pack(fill=tk.X, pady=(0, 10))
         
@@ -141,6 +153,7 @@ class TTSettingsPopup:
         
         ttk.Button(trig_lf, text="Apply", command=self._apply_triggers, width=6).grid(row=0, column=4, padx=(10,0))
 
+        # --- Ping and Channel Select ---
         ping_lf = ttk.LabelFrame(main_frame, text="Active APD Channel (Live Ping)", padding=10)
         ping_lf.pack(fill=tk.BOTH, expand=True)
         
@@ -175,14 +188,16 @@ class TTSettingsPopup:
         
         if self.tt.is_connected and self.tt.ping_measurement:
             try:
-                rates = self.tt.ping_measurement.getData()
-                for i, ch in enumerate([1, 2, 3, 4]):
-                    self.lbl_rates[ch].config(text=f"{rates[i]:.2f} Hz")
+                counts_matrix = self.tt.ping_measurement.getData()
                 
-                sync_rate = rates[4]
-                self.lbl_sync_rate.config(text=f"{sync_rate:.2f} Hz")
-                self.lbl_sync_rate.config(foreground="orange" if sync_rate > 0 else "black")
+                for i, ch in enumerate([1, 2, 3, 4]):
+                    rate_hz = counts_matrix[i][0] * 5.0
+                    self.lbl_rates[ch].config(text=f"{rate_hz:.2f} Hz")
+                
+                sync_rate_hz = counts_matrix[4][0] * 5.0
+                self.lbl_sync_rate.config(text=f"{sync_rate_hz:.2f} Hz")
+                self.lbl_sync_rate.config(foreground="orange" if sync_rate_hz > 0 else "black")
             except Exception:
                 pass
                 
-        self.window.after(300, self._update_ping)
+        self.window.after(200, self._update_ping)
