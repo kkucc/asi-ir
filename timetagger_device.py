@@ -21,11 +21,8 @@ class TimeTaggerDevice:
         self.apd_trigger = -0.25
         
         self.ping_measurement = None
-        self.cbm = None
-        self.delayed_sync = None
-        self.sync_counter = None
+        self.pixel_counter = None  
         
-        self.last_pixel_idx = 0
         self.connect()
 
     def connect(self):
@@ -34,6 +31,7 @@ class TimeTaggerDevice:
             self.tagger = TimeTagger.createTimeTagger()
             self.apply_triggers()
             
+            # Пинг: Окно 200 мс для мгновенной реакции на свет
             self.ping_measurement = TimeTagger.Counter(
                 self.tagger, 
                 channels=[1, 2, 3, 4, 5], 
@@ -54,60 +52,41 @@ class TimeTaggerDevice:
                 self.tagger.setTriggerLevel(ch, self.apd_trigger)
 
     def setup_scan(self, total_pixels: int, dwell_s: float):
-        """Аппаратная подготовка TimeTagger перед началом скана."""
+        """Подготовка: создаем один счетчик для точного измерения пикселя"""
         if not self.is_connected: return
         
         dwell_ps = int(dwell_s * 1e12)
         
-        self.delayed_sync = TimeTagger.DelayedChannel(self.tagger, self.sync_channel, dwell_ps)
-        
-        self.cbm = TimeTagger.CountBetweenMarkers(
+        self.pixel_counter = TimeTagger.Counter(
             self.tagger,
-            click_channel=self.apd_channel,
-            begin_channel=self.sync_channel,
-            end_channel=self.delayed_sync.getChannel(),
-            n_values=total_pixels
+            channels=[self.apd_channel],
+            binwidth=dwell_ps,
+            n_values=1
         )
-        
-        self.sync_counter = TimeTagger.Countrate(self.tagger, channels=[self.sync_channel])
-        self.sync_counter.clear()
-        
-        self.last_pixel_idx = 0
 
     def acquire(self, dwell_s: float, x: float, y: float) -> float:
-        """Перехватывает результат подсчета по TTL."""
-        if not self.is_connected or not self.sync_counter:
+        """Считывает фотоны, пока столик стоит на месте."""
+        if not self.is_connected or not self.pixel_counter:
             time.sleep(dwell_s)
-            return 0.0
+            return np.nan
 
-        target_pixel = self.last_pixel_idx + 1
-        timeout = time.time() + dwell_s * 2.0 + 1.0 
+        dwell_ps = int(dwell_s * 1e12)
         
-        while time.time() < timeout:
-            current = int(self.sync_counter.getCountsTotal()[0])
-            if current >= target_pixel:
-                counts = self.cbm.getData()
-                if target_pixel <= len(counts):
-                    val = counts[target_pixel - 1]
-                else:
-                    val = 0.0
-                self.last_pixel_idx = current
-                return float(val)
-            
-            time.sleep(0.001) 
-            
-        print(f"[TimeTagger] Таймаут TTL на пикселе {target_pixel}!")
-        self.last_pixel_idx += 1
-        return np.nan 
+        self.pixel_counter.startFor(dwell_ps, clear=True)
+        
+        self.pixel_counter.waitUntilFinished()
+        
+        counts = self.pixel_counter.getData()[0]
+        
+        print(f"Пиксель [{x:.1f}, {y:.1f}] -> Фотоны: {counts}")
+        
+        return float(counts)
 
     def teardown_scan(self):
-        """Очистка памяти измерений после скана."""
-        if self.cbm: self.cbm.stop()
-        if self.sync_counter: self.sync_counter.stop()
-        
-        self.cbm = None
-        self.delayed_sync = None
-        self.sync_counter = None
+        """Очистка после скана."""
+        if self.pixel_counter:
+            self.pixel_counter.stop()
+        self.pixel_counter = None
 
     def close(self):
         if self.tagger:
@@ -137,7 +116,6 @@ class TTSettingsPopup:
         main_frame = ttk.Frame(self.window, padding=15)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # --- Trigger Levels ---
         trig_lf = ttk.LabelFrame(main_frame, text="Trigger Levels (V)", padding=10)
         trig_lf.pack(fill=tk.X, pady=(0, 10))
         
@@ -153,7 +131,6 @@ class TTSettingsPopup:
         
         ttk.Button(trig_lf, text="Apply", command=self._apply_triggers, width=6).grid(row=0, column=4, padx=(10,0))
 
-        # --- Ping and Channel Select ---
         ping_lf = ttk.LabelFrame(main_frame, text="Active APD Channel (Live Ping)", padding=10)
         ping_lf.pack(fill=tk.BOTH, expand=True)
         
@@ -189,7 +166,6 @@ class TTSettingsPopup:
         if self.tt.is_connected and self.tt.ping_measurement:
             try:
                 counts_matrix = self.tt.ping_measurement.getData()
-                
                 for i, ch in enumerate([1, 2, 3, 4]):
                     rate_hz = counts_matrix[i][0] * 5.0
                     self.lbl_rates[ch].config(text=f"{rate_hz:.2f} Hz")
