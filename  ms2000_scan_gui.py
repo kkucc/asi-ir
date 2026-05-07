@@ -1,6 +1,3 @@
-# The `StageControlApp` class in the provided Python code is a GUI application for controlling an
-# MS-2000 device, allowing users to connect, disconnect, start and stop scans, set scan parameters,
-# and visualize scan data.
 # ms2000_cockpit.py
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -189,7 +186,7 @@ class MS2000Controller:
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v31 (Monolith)"); self.root.geometry("780x550")
+        self.root = root; self.root.title("MS-2000 Cockpit v32 (Smart Save)"); self.root.geometry("780x570")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         
         self.tt_device_instance = None
@@ -287,6 +284,13 @@ class StageControlApp:
         for i, (k, (l, v, u)) in enumerate(general_fields.items()):
             ttk.Label(param_frame, text=l+":").grid(row=start_row + i, column=0, sticky="w", pady=2); e=ttk.Entry(param_frame, width=8); e.insert(0,v); e.grid(row=start_row + i, column=1, padx=5, pady=2); self.scan_entries[k]=e; ttk.Label(param_frame, text=u).grid(row=start_row + i, column=2, sticky="w", pady=2)
 
+        next_row = start_row + len(general_fields)
+        ttk.Separator(param_frame, orient='horizontal').grid(row=next_row, column=0, columnspan=6, sticky='ew', pady=5)
+        ttk.Label(param_frame, text="File Name:", font='-weight bold').grid(row=next_row+1, column=0, sticky="w", pady=2)
+        self.entry_filename = ttk.Entry(param_frame, width=15)
+        self.entry_filename.insert(0, "sample") 
+        self.entry_filename.grid(row=next_row+1, column=1, columnspan=2, sticky="w", padx=5, pady=2)
+
     def open_device_settings(self):
         """Открывает меню тонкой настройки, если выбран TimeTagger."""
         dev = self.device_combobox.get()
@@ -380,17 +384,11 @@ class StageControlApp:
             try:
                 self.scan_area_patch.remove()
             except ValueError:
-                pass 
+                pass
             self.scan_area_patch = None
             
-        try: 
-            p=self.get_scan_params(False)
-            w=(p['steps_x']-1)*p['step_x']
-            h=(p['steps_y']-1)*p['step_y']
-            self.scan_area_patch=self.ax.add_patch(Rectangle((p['start_x'],p['start_y']),w,h,lw=1,ec='black',fc='black',alpha=0.5))
-            self.canvas.draw()
-        except: 
-            pass
+        try: p=self.get_scan_params(False);w=(p['steps_x']-1)*p['step_x'];h=(p['steps_y']-1)*p['step_y']; self.scan_area_patch=self.ax.add_patch(Rectangle((p['start_x'],p['start_y']),w,h,lw=1,ec='black',fc='black',alpha=0.5));self.canvas.draw()
+        except: pass
         
     def auto_zoom_to_scan_area(self,params):
         min_x=min(params['start_x'],params['end_x']);max_x=max(params['start_x'],params['end_x']);min_y=min(params['start_y'],params['end_y']);max_y=max(params['start_y'],params['end_y']); width=max_x-min_x;height=max_y-min_y;margin_x=max(width*0.1,500.0);margin_y=max(height*0.1,500.0)
@@ -423,11 +421,7 @@ class StageControlApp:
     def plot_scan_data(self,data,row_index):
         p=self.get_scan_params(False);
         if not p: return
-        extent=[p['start_x'],p['end_x'],p['start_y'],p['end_y']]
-        
-        cmap = cm.get_cmap('viridis').copy()
-        cmap.set_bad(color='#222222')
-        
+        extent=[p['start_x'],p['end_x'],p['start_y'],p['end_y']]; cmap=cm.get_cmap('viridis').copy();cmap.set_bad(color='#222222')
         if not self.scan_image:self.scan_image=self.ax.imshow(data,cmap=cmap,origin='lower',extent=extent,interpolation='none')
         else:self.scan_image.set_data(data);self.scan_image.set_extent(extent)
         
@@ -458,21 +452,34 @@ class StageControlApp:
             self.reset_zoom()
             self.setup_minimap()
             self.update_scan_area_preview()
-            
+
     def save_scan_results(self):
+        """Умное сохранение файлов с параметрами в имени."""
         if not self.scan_image: return
         data = self.scan_image.get_array()
         
         os.makedirs("results", exist_ok=True)
+        
+        base_name = self.entry_filename.get().strip()
+        if not base_name: base_name = "scan"
+        
+        p = self.get_scan_params(validate=False)
+        if p:
+            params_str = f"{int(p['steps_x'])}x{int(p['steps_y'])}_{p['step_x']}um_{p['acc_time']}s"
+        else:
+            params_str = "unknown_params"
+            
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        csv_filename = f"results/scan_{timestamp}.csv"
-        png_filename = f"results/scan_{timestamp}.png"
+        # Собираем итоговое имя (БазовоеИмя_Параметры_Таймстемп)
+        file_prefix = f"{base_name}_{params_str}_{timestamp}"
+        csv_filename = f"results/{file_prefix}.csv"
+        png_filename = f"results/{file_prefix}.png"
         
         np.savetxt(csv_filename, data, delimiter=",", fmt="%.2f")
         
         if self.fig:
-            self.ax.set_title(f"Scan Completed: {timestamp}")
+            self.ax.set_title(f"Saved: {file_prefix}")
             self.canvas.draw()
             self.fig.savefig(png_filename, dpi=150, bbox_inches='tight')
             
@@ -509,4 +516,4 @@ class StageControlApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = StageControlApp(root)
-    root.mainloop()
+    root.mainloop()    
