@@ -26,7 +26,7 @@ class TimeTaggerDevice:
         self.gate_start_ns = 2.0
         self.gate_stop_ns = 10.0
         
-        self.flim_binwidth_ps = 50
+        self.flim_binwidth_ps = 1000
         self.flim_n_bins = 1000
         self.is_flim_mode = False
         
