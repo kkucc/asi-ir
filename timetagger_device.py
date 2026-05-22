@@ -18,16 +18,18 @@ class TimeTaggerDevice:
         self.sync_channel = 5
         self.apd_channel = 1
         self.laser_channel = 3  
+        
         self.sync_trigger = 1.70
         self.apd_trigger = -0.25
-        self.laser_trigger = 1.00
-
+        self.laser_trigger = 1.00 
+        
         self.gating_enabled = False
         self.gate_start_ns = 2.0
         self.gate_stop_ns = 10.0
         
-        self.flim_binwidth_ps = 1000
-        self.flim_n_bins = 1000
+        self.laser_freq_mhz = 1.0
+        self.flim_binwidth_ps = 50
+        self.flim_n_bins = int((1e6 / self.laser_freq_mhz) / self.flim_binwidth_ps)
         self.is_flim_mode = False
         
         self.ping_measurement = None
@@ -44,14 +46,9 @@ class TimeTaggerDevice:
         try:
             self.tagger = TimeTagger.createTimeTagger()
             self.apply_triggers()
-            
             self.ping_measurement = TimeTagger.Counter(
-                self.tagger, 
-                channels=[1, 2, 3, 4, 5], 
-                binwidth=int(2e11), 
-                n_values=1
+                self.tagger, channels=[1, 2, 3, 4, 5], binwidth=int(2e11), n_values=1
             )
-            
             self.is_connected = True
             print(f"[TimeTagger] Успешное подключение. Модель: {self.tagger.getModel()}")
         except Exception as e:
@@ -62,11 +59,10 @@ class TimeTaggerDevice:
         if self.tagger:
             self.tagger.setTriggerLevel(self.sync_channel, self.sync_trigger)
             self.tagger.setTriggerLevel(self.laser_channel, self.laser_trigger)
-            for ch in [1, 2, 4]: 
+            for ch in [1, 2, 4]:
                 self.tagger.setTriggerLevel(ch, self.apd_trigger)
 
     def setup_scan(self, total_pixels: int, dwell_s: float, mode: str = "Intensity"):
-        """Подготовка: создаем измеритель (обычный или FLIM) и настраиваем Gating"""
         if not self.is_connected: return
         
         self.is_flim_mode = (mode == "FLIM")
@@ -77,82 +73,61 @@ class TimeTaggerDevice:
             print(f"[TimeTagger] Time Gating ВКЛЮЧЕН: {self.gate_start_ns}ns - {self.gate_stop_ns}ns")
             start_ps = int(self.gate_start_ns * 1000)
             stop_ps = int(self.gate_stop_ns * 1000)
-            
             self.delay_open = TimeTagger.DelayedChannel(self.tagger, self.laser_channel, start_ps)
             self.delay_close = TimeTagger.DelayedChannel(self.tagger, self.laser_channel, stop_ps)
-            
             self.gated_apd = TimeTagger.GatedChannel(
-                self.tagger, 
-                input_channel=self.apd_channel,
+                self.tagger, input_channel=self.apd_channel,
                 gate_start_channel=self.delay_open.getChannel(),
                 gate_stop_channel=self.delay_close.getChannel()
             )
             active_apd = self.gated_apd.getChannel()
         else:
-            print("[TimeTagger] Time Gating ВЫКЛЮЧЕН (Полный счет)")
+            print("[TimeTagger] Time Gating ВЫКЛЮЧЕН")
             
         if self.is_flim_mode:
-            print(f"[TimeTagger] Режим FLIM: Bin {self.flim_binwidth_ps} ps, N Bins {self.flim_n_bins}")
+            print(f"[TimeTagger] Режим FLIM: Laser {self.laser_freq_mhz}MHz, Bin {self.flim_binwidth_ps}ps -> {self.flim_n_bins} Bins")
             self.pixel_measurement = TimeTagger.Histogram(
-                self.tagger,
-                click_channel=active_apd, 
-                start_channel=self.laser_channel, 
-                binwidth=self.flim_binwidth_ps,
-                n_bins=self.flim_n_bins
+                self.tagger, click_channel=active_apd, start_channel=self.laser_channel,
+                binwidth=self.flim_binwidth_ps, n_bins=self.flim_n_bins
             )
         else:
             print("[TimeTagger] Режим Intensity")
             self.pixel_measurement = TimeTagger.Counter(
-                self.tagger,
-                channels=[active_apd],
-                binwidth=dwell_ps,
-                n_values=1
+                self.tagger, channels=[active_apd], binwidth=dwell_ps, n_values=1
             )
 
     def acquire(self, dwell_s: float, x: float, y: float):
-        """Считывает фотоны (или гистограмму), пока столик стоит на месте."""
         if not self.is_connected or not self.pixel_measurement:
             time.sleep(dwell_s)
             return np.full(self.flim_n_bins, np.nan) if self.is_flim_mode else np.nan
 
         dwell_ps = int(dwell_s * 1e12)
-        
         self.pixel_measurement.startFor(dwell_ps, clear=True)
         self.pixel_measurement.waitUntilFinished()
         
         data = self.pixel_measurement.getData()
         
         if self.is_flim_mode:
-            counts_sum = np.sum(data)
-            print(f"пиксэл [{x:.1f}, {y:.1f}] -> FLIM: {counts_sum}")
             return np.array(data)
         else:
             counts = data[0]
-            print(f"пиксэл [{x:.1f}, {y:.1f}] -> I: {counts}")
             return float(counts)
 
     def teardown_scan(self):
-        """Очистка после скана."""
         if self.pixel_measurement: self.pixel_measurement.stop()
         if self.gated_apd: self.gated_apd.stop()
         if self.delay_close: self.delay_close.stop()
         if self.delay_open: self.delay_open.stop()
-            
         self.pixel_measurement = None
-        self.gated_apd = None
-        self.delay_close = None
-        self.delay_open = None
+        self.gated_apd = None; self.delay_close = None; self.delay_open = None
 
     def close(self):
         if self.tagger:
-            if self.ping_measurement:
-                self.ping_measurement.stop()
+            if self.ping_measurement: self.ping_measurement.stop()
             TimeTagger.freeTimeTagger(self.tagger)
-            self.tagger = None
-            self.is_connected = False
+            self.tagger = None; self.is_connected = False
             
-    def __str__(self):
-        return "TimeTagger"
+    def __str__(self): return "TimeTagger"
 
 
 class TTSettingsPopup:
@@ -163,7 +138,6 @@ class TTSettingsPopup:
         self.window.geometry("400x480")
         self.window.resizable(False, False)
         self.window.transient(parent)
-        
         self._setup_ui()
         self._update_ping()
 
@@ -194,63 +168,57 @@ class TTSettingsPopup:
         self.ent_gstop = ttk.Entry(gate_lf, width=6); self.ent_gstop.insert(0, f"{self.tt.gate_stop_ns:.1f}")
         self.ent_gstop.grid(row=1, column=3, padx=5)
 
-        flim_lf = ttk.LabelFrame(main_frame, text="FLIM Histogram Parameters", padding=10)
+        flim_lf = ttk.LabelFrame(main_frame, text="FLIM Parameters", padding=10)
         flim_lf.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(flim_lf, text="Bin Width (ps):").grid(row=0, column=0, sticky='w')
+        ttk.Label(flim_lf, text="Laser Freq (MHz):").grid(row=0, column=0, sticky='w')
+        self.ent_lfreq = ttk.Entry(flim_lf, width=6); self.ent_lfreq.insert(0, str(self.tt.laser_freq_mhz))
+        self.ent_lfreq.grid(row=0, column=1, padx=5)
+        ttk.Label(flim_lf, text="Bin Width (ps):").grid(row=0, column=2, sticky='w', padx=(10,0))
         self.ent_binw = ttk.Entry(flim_lf, width=6); self.ent_binw.insert(0, str(self.tt.flim_binwidth_ps))
-        self.ent_binw.grid(row=0, column=1, padx=5)
-        ttk.Label(flim_lf, text="N Bins:").grid(row=0, column=2, sticky='w', padx=(10,0))
-        self.ent_nbins = ttk.Entry(flim_lf, width=6); self.ent_nbins.insert(0, str(self.tt.flim_n_bins))
-        self.ent_nbins.grid(row=0, column=3, padx=5)
+        self.ent_binw.grid(row=0, column=3, padx=5)
 
-        ttk.Button(main_frame, text="Apply All Settings", command=self._apply_triggers).pack(fill=tk.X, pady=(0, 10))
+        ttk.Button(main_frame, text="Apply All Settings", command=self._apply_all).pack(fill=tk.X, pady=(0, 10))
 
         ping_lf = ttk.LabelFrame(main_frame, text="Active APD Channel (Live Ping)", padding=10)
         ping_lf.pack(fill=tk.BOTH, expand=True)
-        
         self.apd_var = tk.IntVar(value=self.tt.apd_channel)
         self.lbl_rates = {}
-        
-        for i, ch in enumerate([1, 2, 4]): # 1, 2, 4 - ЛФД
+        for i, ch in enumerate([1, 2, 4]):
             rb = ttk.Radiobutton(ping_lf, text=f"Channel {ch} (APD)", variable=self.apd_var, value=ch, command=self._set_channel)
             rb.grid(row=i, column=0, sticky='w', pady=2)
             lbl = ttk.Label(ping_lf, text="0.00 Hz", width=12, anchor='e')
             lbl.grid(row=i, column=1, sticky='e', pady=2, padx=10)
             self.lbl_rates[ch] = lbl
-
         ttk.Separator(ping_lf, orient='horizontal').grid(row=3, column=0, columnspan=2, sticky='ew', pady=5)
         ttk.Label(ping_lf, text="Ch 3 (Laser):", font='-weight bold').grid(row=4, column=0, sticky='w')
         self.lbl_rates[3] = ttk.Label(ping_lf, text="0.00 Hz", width=12, anchor='e', font='-weight bold')
         self.lbl_rates[3].grid(row=4, column=1, sticky='e', padx=10)
-        
         ttk.Label(ping_lf, text="Ch 5 (Sync):", font='-weight bold').grid(row=5, column=0, sticky='w')
         self.lbl_rates[5] = ttk.Label(ping_lf, text="0.00 Hz", width=12, anchor='e', font='-weight bold')
         self.lbl_rates[5].grid(row=5, column=1, sticky='e', padx=10)
 
-    def _apply_triggers(self):
+    def _apply_all(self):
         try:
             self.tt.apd_trigger = float(self.ent_apd_trig.get())
             self.tt.sync_trigger = float(self.ent_sync_trig.get())
             self.tt.laser_trigger = float(self.ent_laser_trig.get())
-            
             self.tt.gating_enabled = self.gate_var.get()
             self.tt.gate_start_ns = float(self.ent_gstart.get())
             self.tt.gate_stop_ns = float(self.ent_gstop.get())
             
+            self.tt.laser_freq_mhz = float(self.ent_lfreq.get())
             self.tt.flim_binwidth_ps = int(self.ent_binw.get())
-            self.tt.flim_n_bins = int(self.ent_nbins.get())
+            self.tt.flim_n_bins = int((1e6 / self.tt.laser_freq_mhz) / self.tt.flim_binwidth_ps)
             
             self.tt.apply_triggers()
-            messagebox.showinfo("Success", "Settings applied successfully!", parent=self.window)
+            messagebox.showinfo("Success", f"Settings applied!\nCalculated FLIM Bins: {self.tt.flim_n_bins}", parent=self.window)
         except ValueError:
             messagebox.showerror("Error", "Invalid numerical values.", parent=self.window)
 
-    def _set_channel(self):
-        self.tt.apd_channel = self.apd_var.get()
+    def _set_channel(self): self.tt.apd_channel = self.apd_var.get()
 
     def _update_ping(self):
         if not self.window.winfo_exists(): return
-        
         if self.tt.is_connected and self.tt.ping_measurement:
             try:
                 counts_matrix = self.tt.ping_measurement.getData()
@@ -259,7 +227,5 @@ class TTSettingsPopup:
                     self.lbl_rates[ch].config(text=f"{rate_hz:.2f} Hz")
                     if ch in [3, 5]:
                         self.lbl_rates[ch].config(foreground="orange" if rate_hz > 0 else "black")
-            except Exception:
-                pass
-                
+            except Exception: pass
         self.window.after(200, self._update_ping)

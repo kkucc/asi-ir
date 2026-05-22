@@ -36,8 +36,7 @@ class SmartDummySignal(AcquisitionDevice):
         dist = np.sqrt((x-center_x)**2 + (y-center_y)**2)
         val = 90 + np.random.rand()*10 if dist < radius else 10 + np.random.rand()*10
         if self.is_flim:
-            hist = np.random.poisson(lam=val/100.0, size=1000)
-            return hist
+            return np.random.poisson(lam=val/10.0, size=1000)
         return val
 
 class MS2000Controller:
@@ -132,6 +131,7 @@ class MS2000Controller:
             
             self.send_command(f"B X={0} Y={0}")
             if self.stop_event.is_set(): raise InterruptedError
+            
             self.send_command(f"S X={scan_speed} Y={scan_speed}")
 
             for i, y in enumerate(y_coords):
@@ -147,31 +147,32 @@ class MS2000Controller:
                         self.move_absolute(x, y); self.wait_for_idle()
 
                     self.send_command("TTL Y=1", quiet=True); self.send_command("TTL Y=0", quiet=True)
-                    
                     value = device.acquire(params['acc_time'], x, y)
                     results[i, j] = value
                 
                 if line_callback: line_callback(results.copy(), i)
                 
-            self.log("INFO: --- Scan Completed ---")
-            
-            if not self.stop_event.is_set():
-                center_x = (params['start_x'] + params['end_x']) / 2.0; center_y = (params['start_y'] + params['end_y']) / 2.0
-                self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
-                self.move_absolute(center_x - backlash, center_y - backlash); self.wait_for_idle()
-                self.move_absolute(center_x, center_y); self.wait_for_idle()
-                
-        except InterruptedError: self.log("INFO: --- Scan Stopped ---"); self.send_command(chr(92))
-        except Exception as e: self.log(f"ERROR: --- Scan Failed: {e} ---"); self.send_command(chr(92))
+        except InterruptedError: 
+            self.log("INFO: --- Scan Aborted ---")
+            self.send_command(chr(92))
+        except Exception as e: 
+            self.log(f"ERROR: --- Scan Failed: {e} ---")
+            self.send_command(chr(92))
         finally: 
+            self.log("INFO: Returning to Start position...")
+            self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
+            self.move_absolute(x_coords[0] - backlash, y_coords[0] - backlash); self.wait_for_idle()
+            self.move_absolute(x_coords[0], y_coords[0]); self.wait_for_idle()
+            
             device.teardown_scan()
             self.is_running_scan = False
+            
     def stop_scan(self): self.log("INFO: Stop signal sent."); self.stop_event.set()
 
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v34 (FLIM Edition)"); self.root.geometry("780x600")
+        self.root = root; self.root.title("MS-2000 Cockpit v35 (Fast FLIM & Autosave)"); self.root.geometry("780x600")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         
         self.tt_device_instance = None
@@ -179,6 +180,9 @@ class StageControlApp:
         
         self.minimap_extents =[STAGE_X_MIN, STAGE_X_MAX, STAGE_Y_MIN, STAGE_Y_MAX]
         self.scan_thread=None; self.progress_line=None; self.scan_image=None; self.scan_area_patch=None
+        self.cbar = None
+        self.raw_scan_data = None
+        
         self._pan_start_x=None; self._pan_start_y=None
         self._position_updater_job = None
         self.start_mode_var = tk.StringVar(value="center")
@@ -205,18 +209,14 @@ class StageControlApp:
         self.disconnect_button=ttk.Button(btn_frame,text="Disconnect",command=self.disconnect,state=tk.DISABLED); self.disconnect_button.pack(fill=tk.X, pady=2)
         
         scan_ctrl_frame=ttk.LabelFrame(top_left, text="Scan Control", padding=10); scan_ctrl_frame.pack(fill=tk.X, pady=(10,0))
-        
-        dev_frame = ttk.Frame(scan_ctrl_frame)
-        dev_frame.pack(fill=tk.X, pady=(0,5))
+        dev_frame = ttk.Frame(scan_ctrl_frame); dev_frame.pack(fill=tk.X, pady=(0,5))
         ttk.Label(dev_frame, text="Device:").pack(side=tk.LEFT)
         self.device_combobox=ttk.Combobox(dev_frame, values=["SmartDummySignal", "TimeTagger"], state="readonly", width=15)
         self.device_combobox.current(0); self.device_combobox.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
         self.btn_settings = ttk.Button(dev_frame, text="⚙️", width=3, command=self.open_device_settings)
         self.btn_settings.pack(side=tk.LEFT)
         
-        # --- Выбор режима сканирования: Intensity / FLIM ---
-        mode_frame = ttk.Frame(scan_ctrl_frame)
-        mode_frame.pack(fill=tk.X, pady=(0, 5))
+        mode_frame = ttk.Frame(scan_ctrl_frame); mode_frame.pack(fill=tk.X, pady=(0, 5))
         ttk.Label(mode_frame, text="Mode:").pack(side=tk.LEFT)
         self.scan_mode_cb = ttk.Combobox(mode_frame, values=["Intensity", "FLIM"], state="readonly", width=10)
         self.scan_mode_cb.current(0); self.scan_mode_cb.pack(side=tk.LEFT, padx=5)
@@ -230,9 +230,9 @@ class StageControlApp:
         self.start_scan_button=ttk.Button(btn_row_1,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,2))
         self.stop_scan_button=ttk.Button(btn_row_1,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(2,0))
         
-        self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0,right=1,top=1,bottom=0)
+        # --- Мапа и Тулбар ---
+        self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0,right=0.9,top=1,bottom=0)
         self.canvas=FigureCanvasTkAgg(self.fig, master=top_right); self.canvas.get_tk_widget().pack(fill=tk.X, anchor='n'); self.setup_minimap()
-        
         toolbar_frame = ttk.Frame(top_right); toolbar_frame.pack(fill=tk.X, anchor='n')
         self.toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame); self.toolbar.update()
         
@@ -281,10 +281,8 @@ class StageControlApp:
     def open_device_settings(self):
         dev = self.device_combobox.get()
         if dev == "TimeTagger":
-            if not self.tt_device_instance:
-                self.tt_device_instance = timetagger_device.TimeTaggerDevice()
-            if not self.tt_device_instance.is_connected:
-                messagebox.showwarning("Внимание", "Time Tagger не обнаружен. Настройки могут не работать.", parent=self.root)
+            if not self.tt_device_instance: self.tt_device_instance = timetagger_device.TimeTaggerDevice()
+            if not self.tt_device_instance.is_connected: messagebox.showwarning("Внимание", "Time Tagger не обнаружен.", parent=self.root)
             timetagger_device.TTSettingsPopup(self.root, self.tt_device_instance)
         else:
             messagebox.showinfo("Settings", f"Дополнительные настройки для {dev} не требуются.", parent=self.root)
@@ -388,7 +386,7 @@ class StageControlApp:
         
         params=self.get_scan_params(); dev_str=self.device_combobox.get()
         if params is None or not dev_str: return
-        params['mode'] = self.scan_mode_cb.get() 
+        params['mode'] = self.scan_mode_cb.get()
         
         if dev_str == "TimeTagger":
             if not self.tt_device_instance: self.tt_device_instance = timetagger_device.TimeTaggerDevice()
@@ -396,7 +394,6 @@ class StageControlApp:
         else: self.active_device = SmartDummySignal()
             
         self.start_scan_button.config(state=tk.DISABLED);self.stop_scan_button.config(state=tk.NORMAL); self.auto_zoom_to_scan_area(params)
-        nan_data=np.full((int(params['steps_y']),int(params['steps_x'])),np.nan);self.plot_scan_data(nan_data,-1)
         self.scan_thread=threading.Thread(target=self.controller.run_scan,args=(params,self.active_device,self.line_update_callback),daemon=True);self.scan_thread.start()
         self.check_scan_thread()
         
@@ -406,13 +403,33 @@ class StageControlApp:
         p=self.get_scan_params(False);
         if not p: return
         extent=[p['start_x'],p['end_x'],p['start_y'],p['end_y']]
+        self.raw_scan_data = data.copy()
         
-        plot_data = np.sum(data, axis=2) if data.ndim == 3 else data
-        
+        # пока такое пвсевдо-FLIM 
+        if data.ndim == 3:
+            n_bins = data.shape[2]
+            bin_ps = getattr(self.active_device, 'flim_binwidth_ps', 50)
+            T = np.arange(n_bins) * bin_ps
+            sum_I = np.sum(data, axis=2)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                tau_map = np.sum(data * T, axis=2) / sum_I
+            tau_map[sum_I == 0] = np.nan
+            plot_data = tau_map
+            cbar_label = "Mean Arrival Time (ps)"
+        else:
+            plot_data = data
+            cbar_label = "Photon Counts"
+
         cmap = cm.get_cmap('viridis').copy(); cmap.set_bad(color='#222222')
         
-        if not self.scan_image:self.scan_image=self.ax.imshow(plot_data,cmap=cmap,origin='lower',extent=extent,interpolation='none')
-        else:self.scan_image.set_data(plot_data);self.scan_image.set_extent(extent)
+        if not self.scan_image:
+            self.scan_image=self.ax.imshow(plot_data,cmap=cmap,origin='lower',extent=extent,interpolation='none')
+            self.cbar = self.fig.colorbar(self.scan_image, ax=self.ax)
+            self.cbar.set_label(cbar_label)
+        else:
+            self.scan_image.set_data(plot_data)
+            self.scan_image.set_extent(extent)
+            self.cbar.set_label(cbar_label)
         
         valid_data = plot_data[~np.isnan(plot_data)]
         if len(valid_data) > 0:
@@ -435,35 +452,35 @@ class StageControlApp:
             if self.controller.is_connected():
                 self.start_scan_button.config(state=tk.NORMAL)
             
-            if hasattr(self, 'scan_image') and self.scan_image is not None and self.active_device is not None:
+            if hasattr(self, 'raw_scan_data') and self.raw_scan_data is not None and self.active_device is not None:
                 self.save_scan_results()
             
             self.reset_zoom(); self.setup_minimap(); self.update_scan_area_preview()
 
     def save_scan_results(self):
-
         os.makedirs("results", exist_ok=True)
-        base_name = self.entry_filename.get().strip()
-        if not base_name: base_name = "scan"
-        
+        base_name = self.entry_filename.get().strip() or "scan"
         p = self.get_scan_params(validate=False)
         mode = self.scan_mode_cb.get()
         params_str = f"{int(p['steps_x'])}x{int(p['steps_y'])}_{p['step_x']}um_{p['acc_time']}s_{mode}" if p else "unknown"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_prefix = f"{base_name}_{params_str}_{timestamp}"
         
-        data_2d = self.scan_image.get_array()
+        if self.raw_scan_data.ndim == 3:
+            npy_filename = f"results/{file_prefix}.npy"
+            np.save(npy_filename, self.raw_scan_data)
+            self.controller.log(f"INFO: 3D FLIM Data saved to {npy_filename}")
+        else:
+            csv_filename = f"results/{file_prefix}.csv"
+            np.savetxt(csv_filename, self.raw_scan_data, delimiter=",", fmt="%.2f")
+            self.controller.log(f"INFO: 2D Intensity Data saved to {csv_filename}")
         
-        png_filename = f"results/{file_prefix}.png"
         if self.fig:
+            png_filename = f"results/{file_prefix}.png"
             self.ax.set_title(f"Saved: {file_prefix}")
             self.canvas.draw()
             self.fig.savefig(png_filename, dpi=150, bbox_inches='tight')
-            
-        csv_filename = f"results/{file_prefix}.csv"
-        np.savetxt(csv_filename, data_2d, delimiter=",", fmt="%.2f")
-            
-        self.controller.log(f"INFO: Saved {file_prefix}")
+            self.controller.log(f"INFO: Image saved to {png_filename}")
             
     def get_scan_params(self,validate=True):
         try:
