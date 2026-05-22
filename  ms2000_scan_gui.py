@@ -10,6 +10,10 @@ import abc
 import os
 from datetime import datetime
 
+try:
+    from scipy.optimize import curve_fit
+except ImportError:
+    pass 
 import timetagger_device
 
 from matplotlib.figure import Figure
@@ -131,7 +135,6 @@ class MS2000Controller:
             
             self.send_command(f"B X={0} Y={0}")
             if self.stop_event.is_set(): raise InterruptedError
-            
             self.send_command(f"S X={scan_speed} Y={scan_speed}")
 
             for i, y in enumerate(y_coords):
@@ -159,11 +162,11 @@ class MS2000Controller:
             self.log(f"ERROR: --- Scan Failed: {e} ---")
             self.send_command(chr(92))
         finally: 
+            # --- Возврат в центр при любом исходе ---
             self.log("INFO: Returning to Start position...")
             self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
             self.move_absolute(x_coords[0] - backlash, y_coords[0] - backlash); self.wait_for_idle()
             self.move_absolute(x_coords[0], y_coords[0]); self.wait_for_idle()
-            
             device.teardown_scan()
             self.is_running_scan = False
             
@@ -172,7 +175,7 @@ class MS2000Controller:
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v35 (Fast FLIM & Autosave)"); self.root.geometry("780x600")
+        self.root = root; self.root.title("MS-2000 Cockpit v36 (Scipy FLIM Fit)"); self.root.geometry("820x600")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         
         self.tt_device_instance = None
@@ -182,6 +185,7 @@ class StageControlApp:
         self.scan_thread=None; self.progress_line=None; self.scan_image=None; self.scan_area_patch=None
         self.cbar = None
         self.raw_scan_data = None
+        self.tau_map = None 
         
         self._pan_start_x=None; self._pan_start_y=None
         self._position_updater_job = None
@@ -216,10 +220,15 @@ class StageControlApp:
         self.btn_settings = ttk.Button(dev_frame, text="⚙️", width=3, command=self.open_device_settings)
         self.btn_settings.pack(side=tk.LEFT)
         
+        # --- Выбор режима (Intensity / FLIM) и Метода Фита ---
         mode_frame = ttk.Frame(scan_ctrl_frame); mode_frame.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(mode_frame, text="Mode:").pack(side=tk.LEFT)
-        self.scan_mode_cb = ttk.Combobox(mode_frame, values=["Intensity", "FLIM"], state="readonly", width=10)
-        self.scan_mode_cb.current(0); self.scan_mode_cb.pack(side=tk.LEFT, padx=5)
+        ttk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky='w')
+        self.scan_mode_cb = ttk.Combobox(mode_frame, values=["Intensity", "FLIM"], state="readonly", width=9)
+        self.scan_mode_cb.current(0); self.scan_mode_cb.grid(row=0, column=1, padx=2)
+        
+        ttk.Label(mode_frame, text="FLIM Fit:").grid(row=0, column=2, sticky='w', padx=(5,0))
+        self.flim_calc_cb = ttk.Combobox(mode_frame, values=["Fast FLIM", "Scipy Fit"], state="readonly", width=9)
+        self.flim_calc_cb.current(0); self.flim_calc_cb.grid(row=0, column=3, padx=2)
         
         start_mode_frame = ttk.Frame(scan_ctrl_frame); start_mode_frame.pack(fill=tk.X, pady=(0, 5))
         ttk.Radiobutton(start_mode_frame, text="Auto-Center at Current Pos", variable=self.start_mode_var, value="center").pack(anchor='w')
@@ -230,8 +239,7 @@ class StageControlApp:
         self.start_scan_button=ttk.Button(btn_row_1,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,2))
         self.stop_scan_button=ttk.Button(btn_row_1,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(2,0))
         
-        # --- Мапа и Тулбар ---
-        self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0,right=0.9,top=1,bottom=0)
+        self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0.1,right=0.9,top=0.9,bottom=0.1)
         self.canvas=FigureCanvasTkAgg(self.fig, master=top_right); self.canvas.get_tk_widget().pack(fill=tk.X, anchor='n'); self.setup_minimap()
         toolbar_frame = ttk.Frame(top_right); toolbar_frame.pack(fill=tk.X, anchor='n')
         self.toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame); self.toolbar.update()
@@ -394,28 +402,68 @@ class StageControlApp:
         else: self.active_device = SmartDummySignal()
             
         self.start_scan_button.config(state=tk.DISABLED);self.stop_scan_button.config(state=tk.NORMAL); self.auto_zoom_to_scan_area(params)
+        
+        self.tau_map = np.full((int(params['steps_y']), int(params['steps_x'])), np.nan)
+        
         self.scan_thread=threading.Thread(target=self.controller.run_scan,args=(params,self.active_device,self.line_update_callback),daemon=True);self.scan_thread.start()
         self.check_scan_thread()
         
     def line_update_callback(self,data,row_idx): self.root.after(0,self.plot_scan_data,data,row_idx)
     
-    def plot_scan_data(self,data,row_index):
-        p=self.get_scan_params(False);
+    def plot_scan_data(self, data, row_index):
+        p = self.get_scan_params(False)
         if not p: return
-        extent=[p['start_x'],p['end_x'],p['start_y'],p['end_y']]
+        extent = [p['start_x'], p['end_x'], p['start_y'], p['end_y']]
         self.raw_scan_data = data.copy()
         
-        # пока такое пвсевдо-FLIM 
         if data.ndim == 3:
-            n_bins = data.shape[2]
-            bin_ps = getattr(self.active_device, 'flim_binwidth_ps', 50)
-            T = np.arange(n_bins) * bin_ps
-            sum_I = np.sum(data, axis=2)
-            with np.errstate(divide='ignore', invalid='ignore'):
-                tau_map = np.sum(data * T, axis=2) / sum_I
-            tau_map[sum_I == 0] = np.nan
-            plot_data = tau_map
-            cbar_label = "Mean Arrival Time (ps)"
+            bin_ps = getattr(self.active_device, 'flim_binwidth_ps', 1000)
+            calc_method = self.flim_calc_cb.get()
+
+            global_hist = np.nansum(data, axis=(0, 1))
+            peak_idx = int(np.argmax(global_hist)) if np.sum(global_hist) > 0 else 0
+            
+            if row_index >= 0:
+                for x_idx in range(data.shape[1]):
+                    pixel_data = data[row_index, x_idx, :]
+                    
+                    if np.isnan(pixel_data).all() or np.sum(pixel_data) < 10:
+                        self.tau_map[row_index, x_idx] = np.nan
+                        continue
+                    
+                    if peak_idx > 5: baseline = np.nanmean(pixel_data[:peak_idx-2])
+                    else: baseline = 0
+                        
+                    decay = pixel_data[peak_idx:] - baseline
+                    decay[decay < 0] = 0
+                    
+                    sum_I = np.sum(decay)
+                    if sum_I == 0:
+                        self.tau_map[row_index, x_idx] = np.nan
+                        continue
+                        
+                    T = np.arange(len(decay)) * (bin_ps / 1000.0)
+                    
+                    fast_tau = np.sum(decay * T) / sum_I
+                    
+                    if calc_method == "Scipy Fit":
+                        try:
+                            from scipy.optimize import curve_fit
+                            popt, _ = curve_fit(
+                                lambda t, a, tau, c: a * np.exp(-t / tau) + c,
+                                T, decay,
+                                p0=[np.max(decay), fast_tau, 0],
+                                bounds=(0, np.inf),
+                                maxfev=400
+                            )
+                            self.tau_map[row_index, x_idx] = popt[1]
+                        except Exception:
+                            self.tau_map[row_index, x_idx] = fast_tau
+                    else:
+                        self.tau_map[row_index, x_idx] = fast_tau
+                        
+            plot_data = self.tau_map
+            cbar_label = "Lifetime (ns)"
         else:
             plot_data = data
             cbar_label = "Photon Counts"
@@ -435,7 +483,7 @@ class StageControlApp:
         if len(valid_data) > 0:
             vmax = np.percentile(valid_data, 98.0)
             vmin = np.min(valid_data)
-            if vmax <= vmin: vmax = vmin + 1
+            if vmax <= vmin: vmax = vmin + 0.1 
             self.scan_image.set_clim(vmin, vmax)
             
         if self.progress_line:self.progress_line.remove()

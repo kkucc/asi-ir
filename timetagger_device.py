@@ -27,9 +27,8 @@ class TimeTaggerDevice:
         self.gate_start_ns = 2.0
         self.gate_stop_ns = 10.0
         
-        self.laser_freq_mhz = 1.0
-        self.flim_binwidth_ps = 50
-        self.flim_n_bins = int((1e6 / self.laser_freq_mhz) / self.flim_binwidth_ps)
+        self.flim_binwidth_ps = 1000
+        self.flim_n_bins = 1000
         self.is_flim_mode = False
         
         self.ping_measurement = None
@@ -81,11 +80,9 @@ class TimeTaggerDevice:
                 gate_stop_channel=self.delay_close.getChannel()
             )
             active_apd = self.gated_apd.getChannel()
-        else:
-            print("[TimeTagger] Time Gating ВЫКЛЮЧЕН")
             
         if self.is_flim_mode:
-            print(f"[TimeTagger] Режим FLIM: Laser {self.laser_freq_mhz}MHz, Bin {self.flim_binwidth_ps}ps -> {self.flim_n_bins} Bins")
+            print(f"[TimeTagger] Режим FLIM: Bin {self.flim_binwidth_ps}ps -> {self.flim_n_bins} Bins")
             self.pixel_measurement = TimeTagger.Histogram(
                 self.tagger, click_channel=active_apd, start_channel=self.laser_channel,
                 binwidth=self.flim_binwidth_ps, n_bins=self.flim_n_bins
@@ -104,14 +101,12 @@ class TimeTaggerDevice:
         dwell_ps = int(dwell_s * 1e12)
         self.pixel_measurement.startFor(dwell_ps, clear=True)
         self.pixel_measurement.waitUntilFinished()
-        
         data = self.pixel_measurement.getData()
         
         if self.is_flim_mode:
             return np.array(data)
         else:
-            counts = data[0]
-            return float(counts)
+            return float(data[0])
 
     def teardown_scan(self):
         if self.pixel_measurement: self.pixel_measurement.stop()
@@ -168,14 +163,14 @@ class TTSettingsPopup:
         self.ent_gstop = ttk.Entry(gate_lf, width=6); self.ent_gstop.insert(0, f"{self.tt.gate_stop_ns:.1f}")
         self.ent_gstop.grid(row=1, column=3, padx=5)
 
-        flim_lf = ttk.LabelFrame(main_frame, text="FLIM Parameters", padding=10)
+        flim_lf = ttk.LabelFrame(main_frame, text="FLIM Histogram Parameters", padding=10)
         flim_lf.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(flim_lf, text="Laser Freq (MHz):").grid(row=0, column=0, sticky='w')
-        self.ent_lfreq = ttk.Entry(flim_lf, width=6); self.ent_lfreq.insert(0, str(self.tt.laser_freq_mhz))
-        self.ent_lfreq.grid(row=0, column=1, padx=5)
-        ttk.Label(flim_lf, text="Bin Width (ps):").grid(row=0, column=2, sticky='w', padx=(10,0))
+        ttk.Label(flim_lf, text="Bin Width (ps):").grid(row=0, column=0, sticky='w')
         self.ent_binw = ttk.Entry(flim_lf, width=6); self.ent_binw.insert(0, str(self.tt.flim_binwidth_ps))
-        self.ent_binw.grid(row=0, column=3, padx=5)
+        self.ent_binw.grid(row=0, column=1, padx=5)
+        ttk.Label(flim_lf, text="N Bins:").grid(row=0, column=2, sticky='w', padx=(10,0))
+        self.ent_nbins = ttk.Entry(flim_lf, width=6); self.ent_nbins.insert(0, str(self.tt.flim_n_bins))
+        self.ent_nbins.grid(row=0, column=3, padx=5)
 
         ttk.Button(main_frame, text="Apply All Settings", command=self._apply_all).pack(fill=tk.X, pady=(0, 10))
 
@@ -206,12 +201,11 @@ class TTSettingsPopup:
             self.tt.gate_start_ns = float(self.ent_gstart.get())
             self.tt.gate_stop_ns = float(self.ent_gstop.get())
             
-            self.tt.laser_freq_mhz = float(self.ent_lfreq.get())
             self.tt.flim_binwidth_ps = int(self.ent_binw.get())
-            self.tt.flim_n_bins = int((1e6 / self.tt.laser_freq_mhz) / self.tt.flim_binwidth_ps)
+            self.tt.flim_n_bins = int(self.ent_nbins.get())
             
             self.tt.apply_triggers()
-            messagebox.showinfo("Success", f"Settings applied!\nCalculated FLIM Bins: {self.tt.flim_n_bins}", parent=self.window)
+            messagebox.showinfo("Success", "Settings applied successfully!", parent=self.window)
         except ValueError:
             messagebox.showerror("Error", "Invalid numerical values.", parent=self.window)
 
