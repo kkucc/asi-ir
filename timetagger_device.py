@@ -223,3 +223,5 @@ class TTSettingsPopup:
                         self.lbl_rates[ch].config(foreground="orange" if rate_hz > 0 else "black")
             except Exception: pass
         self.window.after(200, self._update_ping)
+        
+        

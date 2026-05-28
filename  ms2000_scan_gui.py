@@ -14,6 +14,7 @@ try:
     from scipy.optimize import curve_fit
 except ImportError:
     pass 
+
 import timetagger_device
 
 from matplotlib.figure import Figure
@@ -48,30 +49,39 @@ class MS2000Controller:
         self.ser: Optional[serial.Serial] = None; self.is_running_scan = False
         self.stop_event = threading.Event(); self.log = log_callback; self.lock = threading.Lock()
         self.invert_x = tk.BooleanVar(value=False); self.invert_y = tk.BooleanVar(value=True); self.swap_xy = tk.BooleanVar(value=True)
+    
     def _transform_coords_to_stage(self, x_gui, y_gui):
         x_stage, y_stage = (y_gui, x_gui) if self.swap_xy.get() else (x_gui, y_gui)
         if self.invert_x.get(): x_stage *= -1
         if self.invert_y.get(): y_stage *= -1
         return x_stage, y_stage
+    
     def _transform_coords_from_stage(self, x_stage, y_stage):
         x_temp, y_temp = x_stage, y_stage
         if self.invert_x.get(): x_temp *= -1
         if self.invert_y.get(): y_temp *= -1
         return (y_temp, x_temp) if self.swap_xy.get() else (x_temp, y_temp)
+    
     def is_connected(self) -> bool: return self.ser is not None and self.ser.is_open
+    
     def connect(self, port, baud):
         try:
             self.ser = serial.Serial(port, baud, timeout=1.0); time.sleep(0.05); self._set_high_precision()
-            self.log(f"INFO: Connected to MS-2000 on {port}."); return True
+            self.log(f"INFO: Connected to MS-2000 on {port}.")
+            self.send_command("B X=0 Y=0", quiet=True)
+            return True
         except serial.SerialException as e: self.log(f"ERROR: {e}"); self.ser=None; return False
+        
     def disconnect(self):
         if self.is_running_scan: self.stop_scan()
         if self.ser: self.ser.close(); self.log("INFO: Disconnected.")
         self.ser = None
+        
     def _set_high_precision(self):
         if self.is_connected():
             try: self.ser.write(bytes([255, 72])); time.sleep(0.05)
             except: pass
+            
     def send_command(self, cmd, quiet=False):
         if not self.is_connected(): return None
         with self.lock:
@@ -79,12 +89,14 @@ class MS2000Controller:
                 self.ser.reset_input_buffer(); self.ser.write(f"{cmd}\r".encode('ascii'))
                 return self.ser.read_until(b'\r\n').decode('ascii').strip()
             except Exception as e: self.log(f"ERROR: {e}"); return None
+            
     def wait_for_idle(self):
         timeout = 15.0; start_time = time.time()
         while not self.stop_event.is_set():
             if self.send_command("/", quiet=True) == 'N': return
             if time.time() - start_time > timeout: raise TimeoutError("Move command timed out")
             time.sleep(0.02)
+            
     def get_position(self) -> Optional[tuple[float, float, float]]:
         response = self.send_command("W X Y Z", quiet=True)
         if response and response.startswith(":A"):
@@ -95,11 +107,14 @@ class MS2000Controller:
                 return (x_gui, y_gui, z_stage)
             except: self.log("ERROR: Could not parse position."); return None
         return None
+        
     def move_absolute(self, x_gui, y_gui):
         x_stage, y_stage = self._transform_coords_to_stage(x_gui, y_gui)
         self.send_command(f"M X={int(x_stage*UNITS_UM_TO_DEVICE)} Y={int(y_stage*UNITS_UM_TO_DEVICE)}")
+        
     def move_absolute_z(self, z_gui):
         self.send_command(f"M Z={int(z_gui*UNITS_UM_TO_DEVICE)}")
+        
     def move_relative(self, dx_gui, dy_gui):
         dx_stage, dy_stage = dx_gui, dy_gui
         if self.swap_xy.get(): dx_stage, dy_stage = dy_gui, dx_gui
@@ -109,14 +124,20 @@ class MS2000Controller:
         if int(dx_stage*UNITS_UM_TO_DEVICE) != 0: cmd += f" X={int(dx_stage*UNITS_UM_TO_DEVICE)}"
         if int(dy_stage*UNITS_UM_TO_DEVICE) != 0: cmd += f" Y={int(dy_stage*UNITS_UM_TO_DEVICE)}"
         if cmd != "R": self.send_command(cmd)
+        
     def move_relative_z(self, dz_gui):
         self.send_command(f"R Z={int(dz_gui*UNITS_UM_TO_DEVICE)}")
 
     def run_scan(self, params, device: AcquisitionDevice, line_callback):
         self.is_running_scan = True; self.stop_event.clear()
         self.log(f"INFO: --- Starting Raster Scan ({params['mode']}) ---")
+        
+        center_x = (params['start_x'] + params['end_x']) / 2.0
+        center_y = (params['start_y'] + params['end_y']) / 2.0
+        travel_speed = 0.5
+        
         try:
-            travel_speed = 0.5; scan_speed = params['speed'] / 1000.0; backlash = params['backlash']
+            scan_speed = params['speed'] / 1000.0; backlash = params['backlash']
             steps_x, steps_y = int(params['steps_x']), int(params['steps_y'])
             x_coords = np.linspace(params['start_x'], params['end_x'], steps_x)
             y_coords = np.linspace(params['start_y'], params['end_y'], steps_y)
@@ -133,8 +154,6 @@ class MS2000Controller:
             self.move_absolute(x_coords[0] - backlash, y_coords[0] - backlash); self.wait_for_idle()
             self.move_absolute(x_coords[0], y_coords[0]); self.wait_for_idle()
             
-            self.send_command(f"B X={0} Y={0}")
-            if self.stop_event.is_set(): raise InterruptedError
             self.send_command(f"S X={scan_speed} Y={scan_speed}")
 
             for i, y in enumerate(y_coords):
@@ -162,11 +181,10 @@ class MS2000Controller:
             self.log(f"ERROR: --- Scan Failed: {e} ---")
             self.send_command(chr(92))
         finally: 
-            # --- Возврат в центр при любом исходе ---
-            self.log("INFO: Returning to Start position...")
+            # ВСЕГДА возвращаемся в центр
+            self.log("INFO: Returning to Center position...")
             self.send_command(f"S X={travel_speed} Y={travel_speed}", quiet=True)
-            self.move_absolute(x_coords[0] - backlash, y_coords[0] - backlash); self.wait_for_idle()
-            self.move_absolute(x_coords[0], y_coords[0]); self.wait_for_idle()
+            self.move_absolute(center_x, center_y); self.wait_for_idle()
             device.teardown_scan()
             self.is_running_scan = False
             
@@ -175,7 +193,7 @@ class MS2000Controller:
 
 class StageControlApp:
     def __init__(self, root: tk.Tk):
-        self.root = root; self.root.title("MS-2000 Cockpit v36 (Scipy FLIM Fit)"); self.root.geometry("820x600")
+        self.root = root; self.root.title("MS-2000 Cockpit v37 (Pro Edition)"); self.root.geometry("850x650")
         self.controller = MS2000Controller(lambda msg: print(f"{time.strftime('%H:%M:%S')} - {msg}"))
         
         self.tt_device_instance = None
@@ -197,7 +215,7 @@ class StageControlApp:
     def _create_widgets(self):
         main_frame = ttk.Frame(self.root, padding=10); main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.columnconfigure(0, weight=1); main_frame.columnconfigure(1, weight=0); main_frame.rowconfigure(2, weight=1)
-        top_left=ttk.Frame(main_frame); top_right=ttk.Frame(main_frame, width=280)
+        top_left=ttk.Frame(main_frame); top_right=ttk.Frame(main_frame, width=320)
         bottom_left=ttk.Frame(main_frame)
         top_left.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 10)); top_right.grid(row=0, column=1, rowspan=3, sticky="ns"); bottom_left.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
         
@@ -220,7 +238,6 @@ class StageControlApp:
         self.btn_settings = ttk.Button(dev_frame, text="⚙️", width=3, command=self.open_device_settings)
         self.btn_settings.pack(side=tk.LEFT)
         
-        # --- Выбор режима (Intensity / FLIM) и Метода Фита ---
         mode_frame = ttk.Frame(scan_ctrl_frame); mode_frame.pack(fill=tk.X, pady=(0, 5))
         ttk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky='w')
         self.scan_mode_cb = ttk.Combobox(mode_frame, values=["Intensity", "FLIM"], state="readonly", width=9)
@@ -230,7 +247,12 @@ class StageControlApp:
         self.flim_calc_cb = ttk.Combobox(mode_frame, values=["Fast FLIM", "Scipy Fit"], state="readonly", width=9)
         self.flim_calc_cb.current(0); self.flim_calc_cb.grid(row=0, column=3, padx=2)
         
-        start_mode_frame = ttk.Frame(scan_ctrl_frame); start_mode_frame.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(mode_frame, text="Min Photons:").grid(row=1, column=0, columnspan=2, sticky='w', pady=(5,0))
+        self.ent_min_photons = ttk.Entry(mode_frame, width=9)
+        self.ent_min_photons.insert(0, "50")
+        self.ent_min_photons.grid(row=1, column=2, columnspan=2, sticky='w', pady=(5,0), padx=2)
+        
+        start_mode_frame = ttk.Frame(scan_ctrl_frame); start_mode_frame.pack(fill=tk.X, pady=(10, 5))
         ttk.Radiobutton(start_mode_frame, text="Auto-Center at Current Pos", variable=self.start_mode_var, value="center").pack(anchor='w')
         ttk.Radiobutton(start_mode_frame, text="Start from Current Pos", variable=self.start_mode_var, value="start").pack(anchor='w')
         ttk.Radiobutton(start_mode_frame, text="Use Manual Start Coords", variable=self.start_mode_var, value="manual").pack(anchor='w')
@@ -239,8 +261,12 @@ class StageControlApp:
         self.start_scan_button=ttk.Button(btn_row_1,text="Start Scan",command=self.start_scan,state=tk.DISABLED); self.start_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(0,2))
         self.stop_scan_button=ttk.Button(btn_row_1,text="Stop Scan",command=self.stop_scan,state=tk.DISABLED); self.stop_scan_button.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=(2,0))
         
-        self.fig=Figure(figsize=(2.8, 2.8), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0.1,right=0.9,top=0.9,bottom=0.1)
+        self.fig=Figure(figsize=(3.2, 3.2), dpi=100); self.ax=self.fig.add_subplot(111); self.fig.subplots_adjust(left=0.15,right=0.85,top=0.9,bottom=0.15)
         self.canvas=FigureCanvasTkAgg(self.fig, master=top_right); self.canvas.get_tk_widget().pack(fill=tk.X, anchor='n'); self.setup_minimap()
+        
+        self.progress_bar = ttk.Progressbar(top_right, orient="horizontal", mode="determinate")
+        self.progress_bar.pack(fill=tk.X, pady=5)
+        
         toolbar_frame = ttk.Frame(top_right); toolbar_frame.pack(fill=tk.X, anchor='n')
         self.toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame); self.toolbar.update()
         
@@ -358,20 +384,14 @@ class StageControlApp:
     def _stop_position_updater(self):
         if self._position_updater_job: self.root.after_cancel(self._position_updater_job); self._position_updater_job = None
         
-    def setup_minimap(self):self.ax.clear();self.ax.set_xticks([]);self.ax.set_yticks([]);self.ax.set_facecolor('#cccccc');self.ax.set_aspect('equal',adjustable='box');self.scan_image=None;self.scan_area_patch=None;self.update_minimap_view()
-    def update_minimap_view(self): self.ax.set_xlim(self.minimap_extents[0:2]);self.ax.set_ylim(self.minimap_extents[2:4]);self.canvas.draw()
-    def zoom_in(self): x0,x1,y0,y1=self.minimap_extents;cx,cy=(x0+x1)/2,(y0+y1)/2;w,h=(x1-x0)/4,(y1-y0)/4;self.minimap_extents=[cx-w,cx+w,cy-h,cy+h];self.update_minimap_view()
-    def zoom_out(self): x0,x1,y0,y1=self.minimap_extents;cx,cy=(x0+x1)/2,(y0+y1)/2;w,h=(x1-x0),(y1-y0);self.minimap_extents=[max(STAGE_X_MIN,cx-w),min(STAGE_X_MAX,cx+w),max(STAGE_Y_MIN,cy-h),min(STAGE_Y_MAX,cy+h)];self.update_minimap_view()
-    def reset_zoom(self): self.minimap_extents=[STAGE_X_MIN,STAGE_X_MAX,STAGE_Y_MIN,STAGE_Y_MAX];self.update_minimap_view()
-    def on_pan_press(self,e):
-        if self.toolbar.mode != "": return
-        if e.inaxes != self.ax: return
-        self._pan_start_x, self._pan_start_y = e.xdata, e.ydata
-    def on_pan_release(self,e): self._pan_start_x, self._pan_start_y = None, None
-    def on_pan_motion(self,e):
-        if self.toolbar.mode != "": return
-        if self._pan_start_x is None or e.inaxes != self.ax: return
-        dx=e.xdata-self._pan_start_x;dy=e.ydata-self._pan_start_y; self.minimap_extents[0]-=dx;self.minimap_extents[1]-=dx;self.minimap_extents[2]-=dy;self.minimap_extents[3]-=dy; self.update_minimap_view()
+    def setup_minimap(self):self.ax.clear();self.ax.set_facecolor('#cccccc');self.scan_image=None;self.scan_area_patch=None;self.update_minimap_view()
+    def update_minimap_view(self): self.canvas.draw()
+    def zoom_in(self): pass
+    def zoom_out(self): pass
+    def reset_zoom(self): pass
+    def on_pan_press(self,e): pass
+    def on_pan_release(self,e): pass
+    def on_pan_motion(self,e): pass
         
     def update_scan_area_preview(self,e=None):
         if self.scan_area_patch:
@@ -380,10 +400,6 @@ class StageControlApp:
             self.scan_area_patch = None
         try: p=self.get_scan_params(False);w=(p['steps_x']-1)*p['step_x'];h=(p['steps_y']-1)*p['step_y']; self.scan_area_patch=self.ax.add_patch(Rectangle((p['start_x'],p['start_y']),w,h,lw=1,ec='black',fc='black',alpha=0.5));self.canvas.draw()
         except: pass
-        
-    def auto_zoom_to_scan_area(self,params):
-        min_x=min(params['start_x'],params['end_x']);max_x=max(params['start_x'],params['end_x']);min_y=min(params['start_y'],params['end_y']);max_y=max(params['start_y'],params['end_y']); width=max_x-min_x;height=max_y-min_y;margin_x=max(width*0.1,500.0);margin_y=max(height*0.1,500.0)
-        self.minimap_extents=[min_x-margin_x,max_x+margin_x,min_y-margin_y,max_y+margin_y];self.update_minimap_view()
         
     def start_scan(self):
         start_mode = self.start_mode_var.get()
@@ -401,9 +417,13 @@ class StageControlApp:
             self.active_device = self.tt_device_instance
         else: self.active_device = SmartDummySignal()
             
-        self.start_scan_button.config(state=tk.DISABLED);self.stop_scan_button.config(state=tk.NORMAL); self.auto_zoom_to_scan_area(params)
+        self.start_scan_button.config(state=tk.DISABLED);self.stop_scan_button.config(state=tk.NORMAL)
+        self.progress_bar['value'] = 0
         
         self.tau_map = np.full((int(params['steps_y']), int(params['steps_x'])), np.nan)
+        
+        self.ax.set_xlim(params['start_x'], params['end_x'])
+        self.ax.set_ylim(params['start_y'], params['end_y'])
         
         self.scan_thread=threading.Thread(target=self.controller.run_scan,args=(params,self.active_device,self.line_update_callback),daemon=True);self.scan_thread.start()
         self.check_scan_thread()
@@ -416,6 +436,14 @@ class StageControlApp:
         extent = [p['start_x'], p['end_x'], p['start_y'], p['end_y']]
         self.raw_scan_data = data.copy()
         
+        pct = (row_index + 1) / p['steps_y'] * 100
+        self.progress_bar['value'] = pct
+        
+        try:
+            min_photons = int(self.ent_min_photons.get())
+        except ValueError:
+            min_photons = 50
+        
         if data.ndim == 3:
             bin_ps = getattr(self.active_device, 'flim_binwidth_ps', 1000)
             calc_method = self.flim_calc_cb.get()
@@ -427,7 +455,7 @@ class StageControlApp:
                 for x_idx in range(data.shape[1]):
                     pixel_data = data[row_index, x_idx, :]
                     
-                    if np.isnan(pixel_data).all() or np.sum(pixel_data) < 10:
+                    if np.isnan(pixel_data).all() or np.sum(pixel_data) < min_photons:
                         self.tau_map[row_index, x_idx] = np.nan
                         continue
                     
@@ -443,12 +471,10 @@ class StageControlApp:
                         continue
                         
                     T = np.arange(len(decay)) * (bin_ps / 1000.0)
-                    
                     fast_tau = np.sum(decay * T) / sum_I
                     
                     if calc_method == "Scipy Fit":
                         try:
-                            from scipy.optimize import curve_fit
                             popt, _ = curve_fit(
                                 lambda t, a, tau, c: a * np.exp(-t / tau) + c,
                                 T, decay,
@@ -466,24 +492,28 @@ class StageControlApp:
             cbar_label = "Lifetime (ns)"
         else:
             plot_data = data
+            plot_data[plot_data < min_photons] = np.nan
             cbar_label = "Photon Counts"
 
         cmap = cm.get_cmap('viridis').copy(); cmap.set_bad(color='#222222')
         
+        if self.cbar:
+            self.cbar.remove()
+            
         if not self.scan_image:
             self.scan_image=self.ax.imshow(plot_data,cmap=cmap,origin='lower',extent=extent,interpolation='none')
-            self.cbar = self.fig.colorbar(self.scan_image, ax=self.ax)
-            self.cbar.set_label(cbar_label)
         else:
             self.scan_image.set_data(plot_data)
             self.scan_image.set_extent(extent)
-            self.cbar.set_label(cbar_label)
+            
+        self.cbar = self.fig.colorbar(self.scan_image, ax=self.ax)
+        self.cbar.set_label(cbar_label)
         
         valid_data = plot_data[~np.isnan(plot_data)]
         if len(valid_data) > 0:
             vmax = np.percentile(valid_data, 98.0)
             vmin = np.min(valid_data)
-            if vmax <= vmin: vmax = vmin + 0.1 
+            if vmax <= vmin: vmax = vmin + 0.1
             self.scan_image.set_clim(vmin, vmax)
             
         if self.progress_line:self.progress_line.remove()
@@ -503,7 +533,7 @@ class StageControlApp:
             if hasattr(self, 'raw_scan_data') and self.raw_scan_data is not None and self.active_device is not None:
                 self.save_scan_results()
             
-            self.reset_zoom(); self.setup_minimap(); self.update_scan_area_preview()
+            # self.reset_zoom(); self.setup_minimap(); self.update_scan_area_preview()
 
     def save_scan_results(self):
         os.makedirs("results", exist_ok=True)
@@ -518,6 +548,11 @@ class StageControlApp:
             npy_filename = f"results/{file_prefix}.npy"
             np.save(npy_filename, self.raw_scan_data)
             self.controller.log(f"INFO: 3D FLIM Data saved to {npy_filename}")
+            
+            intensity_2d = np.sum(self.raw_scan_data, axis=2)
+            csv_intensity_file = f"results/{file_prefix}_intensity.csv"
+            np.savetxt(csv_intensity_file, intensity_2d, delimiter=",", fmt="%.2f")
+            
         else:
             csv_filename = f"results/{file_prefix}.csv"
             np.savetxt(csv_filename, self.raw_scan_data, delimiter=",", fmt="%.2f")
